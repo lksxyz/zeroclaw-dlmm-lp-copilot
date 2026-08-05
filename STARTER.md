@@ -1,134 +1,83 @@
 # DLMM LP Copilot — Starter Kit
 
-This repo is two things at once:
+This repo is a **forkable submission template** for any protocol-on-ZeroClaw use
+case. The bounty submission lives in `SUBMISSION.md`. This file is the
+starter-kit manual.
 
-1. **A bounty submission** for the Superteam Brasil *"Build Solana-native
-   plugins for ZeroClaw"* bounty (Telegram LP guardian for Meteora DLMM,
-   T0 read + T1 unsigned tx, no keys held).
-2. **A starter kit** for any DLMM-on-ZeroClaw use case — a forkable,
-   submission-shaped template you can adapt to other protocols, other
-   channels, other guardian patterns.
-
-The submission is in `SUBMISSION.md`. This file is the starter-kit
-manual: how the pieces fit, what to change for your own use case,
-and what to leave alone.
-
----
-
-## The 5-line mental model
+## Mental model
 
 ```
-ZeroClaw (Rust runtime, Telegram, SOPs, memory, MCP, http)
+ZeroClaw runtime (Telegram, SOPs, memory, http)
    ↓ reads
 skills/*.md           — what the LLM knows how to do
    ↓ scheduled by
-sops/dlmm-*/          — cron SOPs: SOP.toml (trigger + metadata) + SOP.md (steps)
-   ↓ falls back to
-http_request / web_fetch + memory    — agent's only outbound tools
-   ↓ proposes actions through
-action-endpoint/      — a self-hosted Solana Action (Blink) server
-   ↓ user signs in
+sops/dlmm-*/          — cron SOPs: SOP.toml + SOP.md
+   ↓ outbound
+http_request + memory — agent's only tools
+   ↓ proposes
+action-endpoint/      — Solana Action server
+   ↓ signs
 Phantom / Solflare    — agent never holds a key
 ```
 
-If a use case needs to do something on Solana and the agent should not
-hold a key, this is the shape. If a use case needs the agent to sign,
-this shape is wrong — go to T2 with Subscriptions & Allowances instead.
+If the agent must NOT hold a key, this shape fits. If it must sign, use
+Subscriptions & Allowances (T2) instead.
 
-## What to copy verbatim
+## Copy verbatim
 
-These are the pieces that are *boring infrastructure* and should not
-need to change between use cases:
+- `config.example.toml` — risk profile shape, SOP triggers, memory config
+- `sops/dlmm-daily-report/` + `sops/dlmm-range-monitor/` — cron SOP pattern
+- `prompts/injection-tests.md` — scenario template (Threat → Expected → Why falls closed)
+- `action-endpoint/` — Worker GET/POST handlers, CORS plumbing. Replace `dlmm.ts`.
 
-- `config.example.toml` — the ZeroClaw config shape. Rename agents,
-  channels, and `skills.meteora.*` blocks; leave `[risk_profiles.*]`,
-  `[sops.triggers]`, `[memory]` alone.
-- `sops/dlmm-daily-report/` and `sops/dlmm-range-monitor/` — the cron SOP
-  pattern (SOP.toml + SOP.md). Fetch → format → send → persist for daily;
-  fetch → dedupe → branch → alert for range monitor. Copy the structure.
-- `prompts/injection-tests.md` — the six scenarios. Add more for
-  your use case; keep the same shape ("Threat → Expected behavior →
-  Why it fails closed").
-- `action-endpoint/` — the worker. Replace `dlmm.ts` with the protocol
-  you're integrating. The `index.ts` GET/POST handlers and the cors
-  plumbing are reusable.
+## Change for a new protocol
 
-## What to change for a different protocol
+- `skills/meteora-*.md` → `skills/<protocol>-*.md` (read → shape → format/build → return Action URL)
+- `action-endpoint/src/dlmm.ts` → `action-endpoint/src/<protocol>.ts`
+- `plugins/dlmm-reader/` → `plugins/<protocol>-reader/` (pure core + shim + host tests)
+- `SUBMISSION.md` + `showcase/` → your story
 
-- `skills/meteora-*.md` → `skills/<your-protocol>-*.md`. The shape
-  is: read → shape → format-or-build → return Action URL.
-- `action-endpoint/src/dlmm.ts` → `action-endpoint/src/<protocol>.ts`.
-  The tx-builder structure (`buildClaim` / `buildRebalance` → base64
-  unsigned tx) generalizes.
-- `plugins/dlmm-reader/` → `plugins/<protocol>-reader/`. The pure
-  core + thin shim + host tests pattern is the one the upstream
-  README says to use.
-- `SUBMISSION.md` and `showcase/` — your use case's story.
+## Leave alone
 
-## What to leave alone
+- **T0/T1 split.** Bounty's sweet spot. T2 = sketch in prompts/ first.
+- **Custody model.** Agent holds RPC key only. No session keys without T2 design doc.
+- **Prompt-injection discipline.** Every fund path = test in `prompts/injection-tests.md`.
+- **Durable nonce** for any T1 path going through approval queues.
 
-- The T0/T1 split. Bounty says T0 and T1 are the sweet spot; if
-  you find yourself reaching for T2, sketch it in `prompts/`
-  as a designed-but-disabled path first.
-- The custody model. The agent holds an RPC key. Period. No session
-  keys unless you've sketched the full T2 design in writing.
-- The prompt-injection discipline. Every fund-moving path has a
-  test in `prompts/injection-tests.md`. New actions = new tests.
-- The durable nonce for any T1 path that goes through an approval
-  queue. Blockhash expiry is a real trap, not a theoretical one.
+## Files for a new use case
 
-## Files you'll need to author for a new use case
+| Need | Where |
+|---|---|
+| New channel | `channels.*` in config; upstream has Discord, Matrix, etc. |
+| New skill | `skills/<name>.md` (frontmatter: name/version/custody/summary) |
+| New SOP | `sops/<name>/SOP.toml` + `SOP.md` |
+| New tx builder | `action-endpoint/src/<protocol>.ts`, import in `index.ts` |
+| New plugin (Tier 3) | `plugins/<name>/` (Cargo.toml, manifest.toml, src/) |
+| Injection test | Append to `prompts/injection-tests.md` |
 
-| You need | Author it in |
-|----------|--------------|
-| A new channel (e.g. Discord) | Add a `channels.*` block to `config.example.toml`; the upstream `zeroclaw-labs/zeroclaw-plugins` already has Discord, Matrix, etc. |
-| A new skill | Add `skills/<name>.md` with frontmatter `name`/`version`/`custody`/`summary` |
-| A new SOP | Add `sops/<name>/SOP.toml` (trigger + metadata) + `SOP.md` (steps) |
-| A new protocol tx builder | Add `action-endpoint/src/<protocol>.ts` and import in `index.ts` |
-| A new plugin (Tier 3) | Add `plugins/<name>/` with `Cargo.toml`, `manifest.toml`, `src/lib.rs`, `src/<core>.rs`, `tests/` |
-| A new prompt-injection test | Append to `prompts/injection-tests.md` |
-
-## What `Makefile` gives you
+## Makefile targets
 
 ```bash
-make help        # list targets
-make validate    # TOML parse + skill frontmatter + plugin cargo check
-make plugin      # cargo test the dlmm-reader plugin
-make plugin-build  # compile dlmm_reader.wasm (gitignored — rebuild after clone)
-make worker-dev  # wrangler dev the action endpoint locally
-make worker-dep  # wrangler deploy the action endpoint
-make demo        # run the end-to-end Devnet demo
+make help          # list targets
+make validate      # TOML parse + skill frontmatter + cargo check
+make plugin        # cargo test dlmm-reader
+make plugin-build  # compile dlmm_reader.wasm (gitignored)
+make worker-dev    # wrangler dev
+make worker-dep    # wrangler deploy
+make demo          # end-to-end Devnet
 ```
 
-## What the CI checks (`.github/workflows/ci.yml`)
+## When NOT to use
 
-- All TOML files parse
-- All skill markdown has the required frontmatter
-- `plugins/dlmm-reader` builds with `cargo check --target wasm32-wasip2`
-  (best-effort — WASI target is optional, soft-fails on non-wasi runners)
-- `action-endpoint` type-checks with `tsc --noEmit`
+- Trading bots, snipers, MEV
+- T2 auto-sign (start from Subscriptions & Allowances + session key + checkpoint)
+- Non-chat channels (API-only agents → drop channel config blocks)
 
-If you fork this for another use case, keep the same CI shape. It is
-the cheapest way to catch a malformed config before judging.
+## Ship a fork
 
-## When to NOT use this starter
-
-- **Trading bots, snipers, MEV.** The starter is for guardians,
-  not for agents that need to win races.
-- **T2 with auto-sign.** This starter is T0/T1 by design. If you
-  need auto-sign, start from a different shape: Subscriptions &
-  Allowances + session key + SOP checkpoint, all sketched in
-  writing before any code.
-- **Use cases that don't fit Telegram/Discord/etc.** The starter
-  assumes chat channels. If your agent is API-only, drop the
-  channel config blocks.
-
-## How to ship a fork
-
-1. `git init` and copy the files you want
-2. Replace `meteora-*` with your protocol name throughout
-3. Re-author the SOPs and skills for your use case
-4. Add at least 3 prompt-injection scenarios for any fund-moving path
-5. Run `make validate` until clean
-6. Write your own `SUBMISSION.md` (the structure here is a template,
-   not a fill-in)
+1. `git init`, copy files
+2. Replace `meteora-*` with your protocol name
+3. Re-author SOPs + skills
+4. Add ≥ 3 injection scenarios per fund-moving path
+5. `make validate` until clean
+6. Write your own `SUBMISSION.md`
