@@ -80,9 +80,10 @@ daily_report_tz       = "America/Sao_Paulo"   # Brazil-first welcome
 range_check_minutes   = 30
 
 # ----- SOP triggers -----------------------------------------------------
-# Each top-level key is the SOP manifest `name`. Cron triggers fire on a
-# schedule; channel triggers fire when the operator DMs the bot and the
-# message matches `intent_match`.
+# Trigger configuration lives in each SOP.toml ([[triggers]] array). Cron
+# SOPs fire on schedule; channel SOPs fire on every Telegram message to the
+# named alias — intent filtering happens in SOP.md step 1 since the
+# condition field is JSONPATH and cannot match plain text payloads.
 [sops.triggers.dlmm-daily-report]
 kind = "cron"
 expr = "0 8 * * *"
@@ -91,21 +92,6 @@ tz   = "Asia/Jakarta"
 [sops.triggers.dlmm-range-monitor]
 kind = "cron"
 expr = "*/30 * * * *"
-
-[sops.triggers.dlmm-report-on-demand]
-kind          = "channel"
-channel       = "telegram.dlmm_copilot"
-intent_match  = "^report\\s*(#?\\d+)?\\s*$"
-
-[sops.triggers.dlmm-claim-on-demand]
-kind          = "channel"
-channel       = "telegram.dlmm_copilot"
-intent_match  = "^claim\\s*#?\\d+\\s*$"
-
-[sops.triggers.dlmm-rebalance-on-demand]
-kind          = "channel"
-channel       = "telegram.dlmm_copilot"
-intent_match  = "^rebalance\\s*#?\\d+\\s*$"
 
 # ----- Memory persistence ----------------------------------------------
 # Per-position baseline (so the report can show delta vs yesterday).

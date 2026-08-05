@@ -2,7 +2,15 @@
 
 ## Steps
 
-1. **Fetch positions** — Read the `meteora-position` skill with `read_skill`, then follow its instructions exactly to fetch every DLMM position of wallet `<<WALLET_PUBKEY>>`. Substitute these literal values for the skill's `${...}` placeholders:
+1. **Intent gate** — Look at the most recent Telegram message that triggered
+   this SOP. If it does NOT match `/^report\s*(#?\d+)?\s*$/i`, complete the
+   run with output `not_for_me` and send nothing. (This SOP fires on every
+   message to `telegram.dlmm_copilot`; the other DLMM SOPs do the same and
+   filter their own intents.)
+   If the message DID match, extract the optional position id (`report #529630`
+   → `529630`) for use in step 2.
+
+2. **Fetch positions** — Read the `meteora-position` skill with `read_skill`, then follow its instructions exactly to fetch every DLMM position of wallet `<<WALLET_PUBKEY>>`. Substitute these literal values for the skill's `${...}` placeholders:
    - `${SOLANA_RPC_URL}` = `<<RPC_URL>>`
    - `${SOLANA_RPC_URL_BACKUP}` = `<<RPC_URL_BACKUP>>` (leave empty if none)
    - `${DLMM_PROGRAM}` = `LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSK9q8Mfev5Rq` (mainnet)

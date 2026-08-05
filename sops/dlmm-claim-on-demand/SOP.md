@@ -2,7 +2,10 @@
 
 ## Steps
 
-1. **Parse id** — Extract the position id from the trigger message (`claim #529630` → `529630`). If absent, reply `usage: claim #<position_id>` and stop.
+1. **Intent gate** — Look at the most recent Telegram message that triggered
+   this SOP. If it does NOT match `/^claim\s*#?\d+\s*$/i`, complete the run
+   with output `not_for_me` and send nothing. If it DID match, extract the
+   position id (`claim #529630` → `529630`) for use in step 2.
 
 2. **Fetch position state** — Read the `meteora-position` skill with `read_skill` and follow its instructions exactly to fetch the named position's current state (fees, owner, bin range). Substitute these literal values for the skill's `${...}` placeholders:
    - `${SOLANA_RPC_URL}` = `<<RPC_URL>>`

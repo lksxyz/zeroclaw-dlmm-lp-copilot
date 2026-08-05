@@ -4,9 +4,16 @@
 # transaction and returns a Solana Action URL for the operator to tap and
 # sign in their wallet.
 
-name        = "dlmm-claim-on-demand"
-version     = "1.0.0"
+[sop]
+name = "dlmm-claim-on-demand"
+version = "1.0.0"
 description = "Operator-initiated fee claim via Telegram DM."
+priority = "normal"
+max_concurrent = 1
+cooldown_secs = 0
+admission_policy = "coalesce"
 
-[run]
-admission_policy = "single"
+[[triggers]]
+type = "channel"
+channel = "telegram"
+alias = "dlmm_copilot"

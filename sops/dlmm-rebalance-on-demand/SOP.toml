@@ -4,9 +4,16 @@
 # unsigned removeLiquidity + addLiquidity pair and returns a Solana
 # Action URL for the operator to tap and sign.
 
-name        = "dlmm-rebalance-on-demand"
-version     = "1.0.0"
+[sop]
+name = "dlmm-rebalance-on-demand"
+version = "1.0.0"
 description = "Operator-initiated DLMM position rebalance via Telegram DM."
+priority = "normal"
+max_concurrent = 1
+cooldown_secs = 0
+admission_policy = "coalesce"
 
-[run]
-admission_policy = "single"
+[[triggers]]
+type = "channel"
+channel = "telegram"
+alias = "dlmm_copilot"

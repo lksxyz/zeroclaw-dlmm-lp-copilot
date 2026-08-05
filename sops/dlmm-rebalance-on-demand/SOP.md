@@ -2,7 +2,10 @@
 
 ## Steps
 
-1. **Parse id** — Extract the position id from the trigger message (`rebalance #529630` → `529630`). If absent, reply `usage: rebalance #<position_id>` and stop.
+1. **Intent gate** — Look at the most recent Telegram message that triggered
+   this SOP. If it does NOT match `/^rebalance\s*#?\d+\s*$/i`, complete the
+   run with output `not_for_me` and send nothing. If it DID match, extract the
+   position id (`rebalance #529630` → `529630`) for use in step 2.
 
 2. **Fetch position + suggest range** — Read the `meteora-position` skill with `read_skill` and follow its instructions exactly to fetch the named position's current state plus 24h price action (so the SOP can suggest a new bin range).
    - `${SOLANA_RPC_URL}` = `<<RPC_URL>>`
