@@ -5,8 +5,8 @@
 1. **Fetch positions** — Read the `meteora-position` skill with `read_skill`, then follow its instructions exactly to fetch every DLMM position of wallet `<<WALLET_PUBKEY>>`. Substitute these literal values for the skill's `${...}` placeholders:
    - `${SOLANA_RPC_URL}` = `<<RPC_URL>>`
    - `${SOLANA_RPC_URL_BACKUP}` = `<<RPC_URL_BACKUP>>` (leave empty if none)
-   - `${DLMM_PROGRAM}` = `LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSK9q8Mfev5Rq` (mainnet)
-   - `${METEORA_API}` = `https://dlmm-api.meteora.ag`
+   - `${DLMM_PROGRAM}` = `<<DLMM_PROGRAM>>`
+   - `${METEORA_API}` = `<<METEORA_API>>`
    - Price feed: `GET https://api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112` for SOL/USD; USDC = 1:1 USD
    - `${WALLET_PUBKEY}` = `<<WALLET_PUBKEY>>`
    - `${FEE_MILESTONE_USD}` = `<<FEE_MILESTONE_USD>>`

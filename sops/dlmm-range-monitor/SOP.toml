@@ -5,6 +5,7 @@ name = "dlmm-range-monitor"
 description = "Alert on out-of-range / IL / fee milestone"
 version = "1.1.0"
 max_concurrent = 1
+admission_policy = "coalesce"            # a second tick folds into the in-flight run
 
 [[triggers]]
 type = "cron"
