@@ -8,7 +8,7 @@
 //!   deserialises args, calls `decoder::decode_position` + `decoder::shape`, and
 //!   returns a JSON array of `PositionSummary`.
 //!
-//! The heavy lifting (RPC fetch, pool state, Switchboard read) is done by the
+//! The heavy lifting (RPC fetch, pool state, Jupiter price read) is done by the
 //! *host* (the agent, via skill markdown + built-in `http_request`). The plugin
 //! is the *shaping* step that fits the model context.
 

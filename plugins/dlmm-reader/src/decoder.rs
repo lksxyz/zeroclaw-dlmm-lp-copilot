@@ -92,7 +92,7 @@ pub enum Action {
     Review,
 }
 
-/// Pure compute. Caller supplies the price (Switchboard), the active bin
+/// Pure compute. Caller supplies the price (Jupiter), the active bin
 /// (Meteora pool state), and the entry-time token amounts (cached to
 /// memory on first read).
 pub fn shape(
