@@ -6,7 +6,6 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 DLMM_PROGRAM = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSK9q8Mfev5Rq"
 # For Devnet, override via `wrangler secret put DLMM_PROGRAM`.
-SWITCHBOARD_CROSSBAR = "https://crossbar.switchboard-oracle.xyz"
 
 # Secrets — set with `wrangler secret put <NAME>`:
 #   RPC_URL              e.g. https://api.mainnet-beta.solana.com

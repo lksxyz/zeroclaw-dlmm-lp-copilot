@@ -29,7 +29,6 @@ import { buildClaimFee, buildRebalance } from './dlmm';
 export interface Env {
   RPC_URL: string;
   DLMM_PROGRAM: string;
-  SWITCHBOARD_CROSSBAR: string;
   NONCE_ACCOUNT?: string;
   NONCE_AUTHORITY?: string;
 }
