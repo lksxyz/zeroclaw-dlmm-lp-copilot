@@ -52,6 +52,17 @@ jupiter_price_api = "https://api.jup.ag/price/v2"
 feed_sol_id       = "So11111111111111111111111111111111111111112"
 usdc_usd          = 1.0                    # stablecoin peg
 
+# ----- HTTP tool (used by the SOPs for RPC / price / Meteora calls) ------
+# Keep the allowlist tight: empty = deny all, "*" = allow all.
+[http_request]
+allowed_domains = ["mainnet.helius-rpc.com", "api.jup.ag", "dlmm-api.meteora.ag"]
+
+[http_request.secrets]
+# Named secrets the agent can reference with `auth_secret` in http_request.
+# The value is sent verbatim as the Authorization header, so include the
+# scheme ("Bearer "). May be literal, encrypted, or environment-backed:
+# helius_rpc = "Bearer ${HELIUS_AUTH}"
+
 # ----- Daily report thresholds -----------------------------------------
 [skills.meteora.thresholds]
 out_of_range_alert    = true                  # alert when active_bin outside position range

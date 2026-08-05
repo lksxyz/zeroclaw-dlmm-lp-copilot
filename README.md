@@ -101,6 +101,15 @@ cp config.example.toml ~/.zeroclaw/config.toml
 # edit RPC URL (Helius / Triton / QuickNode / your own)
 ```
 
+RPC auth goes in `[http_request.secrets]` and is referenced by name with
+`auth_secret` in the skill's `http_request` calls — the key travels as an
+`Authorization` header, never in a URL:
+
+```toml
+[http_request.secrets]
+helius_rpc = "Bearer ${HELIUS_AUTH}"
+```
+
 ### 4. Deploy the Action endpoint
 
 The agent returns Solana Action URLs; the endpoint that serves them is a tiny
@@ -179,8 +188,9 @@ T0/T1 never depend on the plugin — the plugin is pure bonus.
 - **Channel = prompt-injection surface.** Telegram DMs are user-controlled. The agent
   must not authorize any fund-moving action from a DM alone; it only **proposes** via
   an Action URL, the user's wallet signs. See `prompts/injection-tests.md`.
-- **RPC key exposure.** Kept in encrypted-at-rest `config_read`. Worker URLs are
-  user-supplied.
+- **RPC key exposure.** Sent as an `Authorization` header via
+  `[http_request.secrets]` (`auth_secret`); keys never appear in URLs, skill
+  files, or repo. Worker URLs are user-supplied.
 - **Third-party trust.** Jupiter (public, read-only), Cloudflare (hosting the
   Action endpoint), and Helius/your RPC. Declared in `SUBMISSION.md` § Threat model.
 - **Blockhash expiry.** T1 rebalance uses **durable nonces** — approval queues can

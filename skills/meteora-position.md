@@ -46,12 +46,21 @@ POST ${SOLANA_RPC_URL}
 RPC rejects the query, drop the `dataSize` filter and rely on the owner
 `memcmp` alone.
 
+**RPC auth.** `${SOLANA_RPC_URL}` is key-less by design — never put API keys
+in URLs. If the RPC provider requires a key (e.g. Helius), send it as a
+header on every call: pass `auth_secret` set to `${RPC_AUTH_SECRET}` (the
+name of a `[http_request.secrets]` entry, sent as the `Authorization` header),
+or a literal `headers` object when no secret is configured. If the provider
+rejects the request and you forgot auth, the failure is on your side, not
+the provider's — check the header first.
+
 **Empty results are valid.** If `getProgramAccounts` returns no accounts (or DAS
 returns no assets), the wallet simply has no DLMM positions — report
 `No DLMM positions for this wallet` honestly. Do not treat an empty result as
 an error, and never invent positions.
 
-**If you can't decode the borsh locally**, use Helius DAS as a fallback:
+**If you can't decode the borsh locally**, use Helius DAS as a fallback
+(same `auth_secret` applies):
 
 ```
 POST https://mainnet.helius-rpc.com
