@@ -2,13 +2,14 @@
 name: meteora-rebalance
 version: 3
 custody: T1
+summary: Build atomic remove+add rebalance tx on durable nonce, return Action URL
 ---
 
 # meteora-rebalance
 
 Build atomic removeLiquidity + addLiquidity on durable nonce. Return Action URL. User signs.
 
-YOUR ONLY TOOLS: `http_request`, `send_message_to_peer`, `read_skill`, `memory_recall`. Nothing else exists.
+Tools: use `http_request`, `send_message_to_peer`, `read_skill`, `memory_recall`. Avoid `web_fetch`, `web_search_tool`, `browser` — stick to `http_request` for network calls.
 
 ## Trigger
 

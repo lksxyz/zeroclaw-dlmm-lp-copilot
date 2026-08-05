@@ -6,9 +6,9 @@
    - `${SOLANA_RPC_URL}` = `<<RPC_URL>>`
    - `${SOLANA_RPC_URL_BACKUP}` = `<<RPC_URL_BACKUP>>`
    - `${DLMM_PROGRAM}` = `<<DLMM_PROGRAM>>`
-   - `${METEORA_API}` = `<<METEORA_API>>`
    - `${WALLET_PUBKEY}` = `<<WALLET_PUBKEY>>`
    - ${FEE_MILESTONE_USD} = `<<FEE_MILESTONE_USD>>`
+   - Meteora: `http_request GET https://dlmm-api.meteora.ag/pair/<pool_address>`
    - Price: `http_request GET https://api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112`
    Empty = valid. "No DLMM positions" is not an error.
    Tools: read_skill, http_request

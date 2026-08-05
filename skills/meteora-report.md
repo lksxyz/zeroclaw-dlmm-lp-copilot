@@ -2,13 +2,14 @@
 name: meteora-report
 version: 4
 custody: T0
+summary: Format position data as Telegram-friendly report
 ---
 
 # meteora-report
 
 Takes `meteora-position` output. Formats for Telegram (4096 char limit).
 
-YOUR ONLY TOOLS: `send_message_to_peer`, `read_skill`, `memory_recall`, `http_request`. Nothing else exists.
+Tools: use `send_message_to_peer`, `read_skill`, `memory_recall`, `http_request`. Avoid `web_fetch`, `web_search_tool`, `browser` — stick to `http_request` for network calls.
 
 ## When
 

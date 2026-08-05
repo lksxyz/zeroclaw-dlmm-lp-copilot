@@ -2,11 +2,12 @@
 name: meteora-position
 version: 3
 custody: T0
+summary: Fetch DLMM positions and compute impermanent loss vs HODL
 ---
 
 # meteora-position
 
-YOUR ONLY TOOLS: `http_request`, `read_skill`, `send_message_to_peer`, `memory_recall`. These 4 tools are ALL you have. Other tools (web_fetch, web_search_tool, browser, weather, calculator, glob_search, content_search, file_read, file_write, file_edit, data_management, cron_list, memory_export) DO NOT EXIST in your environment. If you think you need them — you are wrong. Use http_request.
+Tools: use `http_request` for all external calls. Avoid `web_fetch`, `web_search_tool`, `browser` — results are unreliable.
 
 ## Trigger
 

@@ -65,10 +65,11 @@ blockhash window. One nonce per concurrent pending tx.
 **Third-party trust:** Jupiter (read-only), Cloudflare (worker host), Helius/RPC
 (user-supplied). Declared.
 
-**Filesystem hard-block.** `excluded_tools` removes `content_search`, `glob_search`,
+**Filesystem tools approval-gated.** `content_search`, `glob_search`,
 `file_read`, `file_write`, `file_edit`, `data_management`, `memory_export`,
-`cron_list`, `web_fetch`, `browser`, `web_search_tool` from Telegram. `memory_recall`
-remains (position baselines, no secrets).
+`cron_list` require user approval on Telegram. Web/read-only tools
+(`web_fetch`, `browser`, `web_search_tool`) auto-approved — non-destructive.
+`memory_recall` remains (position baselines, no secrets).
 
 ## What we did NOT do
 
@@ -83,8 +84,8 @@ remains (position baselines, no secrets).
 - Self-hosted Action endpoint (no Dialect dependency)
 - Durable nonces (blockhash trap solved)
 - Jupiter feed (no Pyth/Switchboard dependency)
-- Filesystem hard-block via `excluded_tools` + 7-scenario injection suite
-- Triple-gated defense: LLM (skill rules) + Tool (excluded_tools) + Cryptographic (on-chain auth)
+- Filesystem tools approval-gated + 7-scenario injection suite
+- Triple-gated defense: LLM (skill rules) + Tool (approval-gated) + Cryptographic (on-chain auth)
 
 ## Reproduce
 

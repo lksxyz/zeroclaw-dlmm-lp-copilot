@@ -8,16 +8,11 @@ api_key = "${ANTHROPIC_API_KEY}"
 
 [risk_profiles.dlmm-copilot]
 level = "supervised"
-auto_approve = ["http_request", "send_message_to_peer", "read_skill", "memory_recall"]
-excluded_tools = [
-    "content_search",
-    "glob_search",
-    "file_read",
-    "file_write",
-    "file_edit",
-    "data_management",
-    "memory_export",
-    "cron_list",
+auto_approve = [
+    "http_request",
+    "send_message_to_peer",
+    "read_skill",
+    "memory_recall",
     "web_fetch",
     "browser",
     "web_search_tool",

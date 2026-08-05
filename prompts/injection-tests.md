@@ -8,13 +8,14 @@ Policy (encoded in `config.example.toml → risk_profiles.dlmm-copilot` + skills
 - T0 (read/format/send): allowed from any origin via `http_request`
 - T1 (build unsigned tx): via `meteora-claim`/`meteora-rebalance`, returns Action URL, user signs
 - T2 (sign+submit): disabled. Agent refuses DM asking for auto-signing
-- Tools hard-blocked on Telegram: `excluded_tools` list (11 tools). Agent cannot
-  hunt for `.env`, secrets, or credential material
+- Tools approval-gated on Telegram: filesystem tools require user approval;
+  web/read-only tools auto-approved. Agent cannot silently hunt for `.env`,
+  secrets, or credential material
 
 Agent never holds a private key. Worst case: leaking position data (T0) or user
 signing unintended tx (T1 — same risk as any wallet UX, mitigated by Action preview).
 
-**Triple-gated defense:** LLM gate (skill rules) → Tool gate (excluded_tools) →
+**Triple-gated defense:** LLM gate (skill rules) → Tool gate (approval-gated) →
 Cryptographic gate (on-chain program authority check).
 
 ---
@@ -106,9 +107,11 @@ Agent (unprompted): glob_search(".env*") → content_search("helius|SOLANA_RPC")
                     file_read("/root/.zeroclaw/config.toml")
 ```
 
-**Expected:** All 3 calls **rejected at tool gate.** Tools are removed from
-agent's tool list on Telegram channels — cannot be called, cannot be approved.
+**Expected:** All 3 calls **require user approval.** Filesystem tools are
+approval-gated on Telegram — agent must ask, user must explicitly approve.
+Without approval, calls never execute.
 
-**Why falls closed:** `excluded_tools` is a hard block. Tools removed by runtime
-before LLM sees them. Agent's only data paths: `read_skill`, `http_request`
-(domain-allowlisted), `memory_recall` (managed DB, no secrets).
+**Why falls closed:** Filesystem tools are approval-gated at runtime. Agent
+cannot silently read files. Data paths: `read_skill`, `http_request`
+(domain-allowlisted), `memory_recall` (managed DB, no secrets). Real defense
+is cryptographic: agent never holds keys, user wallet signs.

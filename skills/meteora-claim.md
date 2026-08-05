@@ -2,13 +2,14 @@
 name: meteora-claim
 version: 3
 custody: T1
+summary: Build unsigned claimFee tx, return Solana Action URL for user signing
 ---
 
 # meteora-claim
 
 Build unsigned claimFee tx. Return Solana Action URL. User signs. Agent never holds keys.
 
-YOUR ONLY TOOLS: `http_request`, `send_message_to_peer`, `read_skill`, `memory_recall`. Nothing else exists.
+Tools: use `http_request`, `send_message_to_peer`, `read_skill`, `memory_recall`. Avoid `web_fetch`, `web_search_tool`, `browser` — stick to `http_request` for network calls.
 
 ## Trigger
 

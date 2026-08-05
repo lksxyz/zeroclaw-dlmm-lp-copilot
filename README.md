@@ -73,10 +73,10 @@ WASM plugin (Tier 3 bonus, optional): `make plugin-build && make plugin`.
 ## Threat model (short)
 
 **Channel = prompt-injection surface.** Agent only *proposes* — user wallet signs.
-`excluded_tools` hard-blocks `content_search`, `glob_search`, `file_read`,
-`file_write`, `file_edit`, `data_management`, `memory_export`, `cron_list`,
-`web_fetch`, `browser`, `web_search_tool` from Telegram. `memory_recall` reads
-position baselines (no secrets). See `prompts/injection-tests.md` (7 scenarios).
+Filesystem tools (`content_search`, `glob_search`, `file_read`, `file_write`,
+`file_edit`, `data_management`, `memory_export`, `cron_list`) are approval-gated
+on Telegram. Web/read-only tools auto-approved. `memory_recall` reads position
+baselines (no secrets). See `prompts/injection-tests.md` (7 scenarios).
 
 **RPC key in URL query param.** ZeroClaw's `http_request` only supports
 `Authorization` header — Helius needs `x-api-key`. Key stays on disk.
