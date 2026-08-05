@@ -1,0 +1,13 @@
+# Daily DLMM position report — 08:00 local (daemon TZ)
+# Agent-driven SOP (ZeroClaw v2 format): steps execute via the agent loop.
+# Read-only end to end. No keys held.
+[sop]
+name = "dlmm-daily-report"
+description = "Daily DLMM position summary to Telegram"
+version = "1.1.0"
+max_concurrent = 1
+admission_policy = "coalesce"          # a second trigger folds into the in-flight run
+
+[[triggers]]
+type = "cron"
+expression = "0 8 * * *"               # daemon-local timezone (set TZ=Asia/Jakarta on the unit)

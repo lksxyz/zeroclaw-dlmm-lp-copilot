@@ -1,0 +1,11 @@
+# Out-of-range + IL + fee-milestone monitor — every 30 minutes (daemon TZ)
+# Agent-driven SOP (ZeroClaw v2 format). Read-only; alert only, no funds move.
+[sop]
+name = "dlmm-range-monitor"
+description = "Alert on out-of-range / IL / fee milestone"
+version = "1.1.0"
+max_concurrent = 1
+
+[[triggers]]
+type = "cron"
+expression = "*/30 * * * *"             # daemon-local timezone
