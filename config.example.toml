@@ -1,22 +1,14 @@
-# ZeroClaw config for DLMM LP Copilot
-# ----------------------------------------------------------------------
-# Copy to ~/.zeroclaw/config.toml and fill in redacted fields.
-# All secrets are read via `config_read` (encrypted at rest by the host).
-# ----------------------------------------------------------------------
+# DLMM LP Copilot — config.example.toml
+# Copy to ~/.zeroclaw/config.toml. Fill in ${ENV_VAR} placeholders.
+# All secrets encrypted at rest via config_read.
 
-# ----- Provider ---------------------------------------------------------
 [providers.models.anthropic.copilot]
 model = "claude-sonnet-4-5"
-api_key = "${ANTHROPIC_API_KEY}"          # env var; never inline
+api_key = "${ANTHROPIC_API_KEY}"
 
-# ----- Risk profile -----------------------------------------------------
-# Balanced preset + the tools the cron SOPs need unattended. http_request
-# (RPC / price / Meteora) and send_message_to_peer must be auto-approved or
-# cron runs fail-closed: no approver channel exists to tap "approve".
 [risk_profiles.dlmm-copilot]
-level = "supervised"                   # acts, but requires approval for risky ops
+level = "supervised"
 auto_approve = ["http_request", "send_message_to_peer", "read_skill", "memory_recall"]
-# Every other tool (file edits, shell, delegation) still gates normally.
 excluded_tools = [
     "content_search",
     "glob_search",
@@ -26,21 +18,17 @@ excluded_tools = [
     "data_management",
     "memory_export",
     "cron_list",
+    "web_fetch",
+    "browser",
+    "web_search_tool",
 ]
-# excluded_tools is a hard block — these tools are removed from the agent's
-# tool list on non-CLI channels (Telegram). This prevents the agent from
-# hunting for .env files, config secrets, or credential material in the
-# workspace. read_skill is the ONLY way to read skill files; http_request
-# is the ONLY way to touch the network.
 
-# ----- Telegram channel -------------------------------------------------
 [channels.telegram.dlmm_copilot]
-bot_token = "${TELEGRAM_BOT_TOKEN}"       # from @BotFather
-chat_id   = "${TELEGRAM_CHAT_ID}"         # your chat id
+bot_token = "${TELEGRAM_BOT_TOKEN}"
+chat_id   = "${TELEGRAM_CHAT_ID}"
 poll_interval_seconds = 5
-sender_match = "handle"                   # @username match (per registry v0.2)
+sender_match = "handle"
 
-# ----- Agent -----------------------------------------------------------
 [agents.dlmm_copilot]
 provider  = "anthropic.copilot"
 risk_profile = "dlmm-copilot"
@@ -48,57 +36,36 @@ skills_dir = "~/.zeroclaw/skills"
 sops_dir   = "~/.zeroclaw/sops"
 memory     = "sqlite:~/.zeroclaw/memory.db"
 
-# ----- Solana RPC + Meteora config -------------------------------------
-# RPC: user-supplied. Helius / Triton / QuickNode / your own node.
-# NEVER put keys in code. NEVER commit a populated config.toml.
 [skills.meteora]
-rpc_url                = "${SOLANA_RPC_URL}"          # e.g. https://api.devnet.solana.com
-rpc_url_backup         = "${SOLANA_RPC_URL_BACKUP}"   # optional fallback
+rpc_url                = "${SOLANA_RPC_URL}"
+rpc_url_backup         = "${SOLANA_RPC_URL_BACKUP}"
 meteora_api            = "https://dlmm-api.meteora.ag"
-dlmm_program           = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSK9q8Mfev5Rq"   # mainnet
-# For Devnet, override per environment:
-# dlmm_program         = "<devnet-program-id>"
-wallet_pubkey          = "${OPERATOR_WALLET_PUBKEY}"  # base58, the LP's wallet
+dlmm_program           = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSK9q8Mfev5Rq"
+wallet_pubkey          = "${OPERATOR_WALLET_PUBKEY}"
 report_chat_id         = "${TELEGRAM_CHAT_ID}"
-action_endpoint_base   = "${ACTION_ENDPOINT_BASE}"    # e.g. https://dlmm-copilot.example.workers.dev
-nonce_account         = "${DURABLE_NONCE_ACCOUNT}"   # base58, for rebalance
-nonce_authority       = "${OPERATOR_WALLET_PUBKEY}"  # signs the nonce advance
+action_endpoint_base   = "${ACTION_ENDPOINT_BASE}"
+nonce_account          = "${DURABLE_NONCE_ACCOUNT}"
+nonce_authority        = "${OPERATOR_WALLET_PUBKEY}"
 
-# Price feed: Jupiter Price API (public, unauthenticated). Pyth Hermes unauth
-# deprecates 2026-07-31; Switchboard Crossbar DNS went dark 2026-08.
 [skills.meteora.prices]
 jupiter_price_api = "https://api.jup.ag/price/v2"
 feed_sol_id       = "So11111111111111111111111111111111111111112"
-usdc_usd          = 1.0                    # stablecoin peg
+usdc_usd          = 1.0
 
-# ----- HTTP tool (used by the SOPs for RPC / price / Meteora calls) ------
-# Keep the allowlist tight: empty = deny all, "*" = allow all.
 [http_request]
 allowed_domains = ["mainnet.helius-rpc.com", "api.jup.ag", "dlmm-api.meteora.ag"]
 
 [http_request.secrets]
-# Named secrets the agent can reference with `auth_secret` in http_request.
-# Values are sent verbatim as the Authorization header. May be literal,
-# encrypted, or environment-backed as ${ENV_VAR}. Only useful for providers
-# that accept Bearer auth (e.g. a private JSON-RPC behind a corporate proxy).
-# Helius does NOT accept Bearer — keep its key in the URL query param, and
-# rely on auto_approving `http_request` to keep the URL out of approval cards.
-# my_rpc = "Bearer ${MY_RPC_TOKEN}"
+# Only Bearer auth supported. Helius uses x-api-key → keep key in RPC URL query param.
 
-# ----- Daily report thresholds -----------------------------------------
 [skills.meteora.thresholds]
-out_of_range_alert    = true                  # alert when active_bin outside position range
-il_alert_pct          = 5.0                   # alert when IL vs HODL > 5%
-fee_milestone_usd     = 1.0                   # DM when claimable fees > $1
-daily_report_hour     = 8                     # 08:00 local
-daily_report_tz       = "America/Sao_Paulo"   # Brazil-first welcome
+out_of_range_alert    = true
+il_alert_pct          = 5.0
+fee_milestone_usd     = 1.0
+daily_report_hour     = 8
+daily_report_tz       = "America/Sao_Paulo"
 range_check_minutes   = 30
 
-# ----- SOP triggers -----------------------------------------------------
-# Trigger configuration lives in each SOP.toml ([[triggers]] array). Cron
-# SOPs fire on schedule; channel SOPs fire on every Telegram message to the
-# named alias — intent filtering happens in SOP.md step 1 since the
-# condition field is JSONPATH and cannot match plain text payloads.
 [sops.triggers.dlmm-daily-report]
 kind = "cron"
 expr = "0 8 * * *"
@@ -108,8 +75,6 @@ tz   = "Asia/Jakarta"
 kind = "cron"
 expr = "*/30 * * * *"
 
-# ----- Memory persistence ----------------------------------------------
-# Per-position baseline (so the report can show delta vs yesterday).
 [memory]
 path = "sqlite:~/.zeroclaw/memory.db"
 schema = "v1"

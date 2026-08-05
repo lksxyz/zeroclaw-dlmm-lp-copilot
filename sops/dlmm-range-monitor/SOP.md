@@ -2,16 +2,19 @@
 
 ## Steps
 
-1. **Check positions** — Read the `meteora-position` skill with `read_skill`, then follow its instructions exactly to fetch every DLMM position of wallet `<<WALLET_PUBKEY>>`. Substitute these literal values for the skill's `${...}` placeholders:
+1. **Check positions** — `read_skill meteora-position`, execute with:
    - `${SOLANA_RPC_URL}` = `<<RPC_URL>>`
-   - `${SOLANA_RPC_URL_BACKUP}` = `<<RPC_URL_BACKUP>>` (leave empty if none)
+   - `${SOLANA_RPC_URL_BACKUP}` = `<<RPC_URL_BACKUP>>`
    - `${DLMM_PROGRAM}` = `<<DLMM_PROGRAM>>`
    - `${METEORA_API}` = `<<METEORA_API>>`
-   - Price feed: `GET https://api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112` for SOL/USD; USDC = 1:1 USD
    - `${WALLET_PUBKEY}` = `<<WALLET_PUBKEY>>`
-   - `${FEE_MILESTONE_USD}` = `<<FEE_MILESTONE_USD>>`
-   An empty account list means the wallet has no DLMM positions — that is a valid outcome: complete the run with output `all clear` and send nothing.
-   Return the per-position blocks (each with its `status`, `il_pct`, `claimable_usd`) as your step output.
+   - ${FEE_MILESTONE_USD} = `<<FEE_MILESTONE_USD>>`
+   - ${IL_ALERT_PCT} = `<<IL_ALERT_PCT>>`
+   Empty = valid, output `all clear`, stop.
+   Tools: read_skill, http_request
 
-2. **Alert if needed** — Evaluate step 1's output against the thresholds in the `meteora-position` skill: a position is out-of-range (`status = out-of-range`), IL worse than `<<IL_ALERT_PCT>>`%, or claimable fees ≥ `<<FEE_MILESTONE_USD>>` USD. If **any** position triggers a condition, send ONE Telegram message per triggered condition with `send_message_to_peer` (channel `telegram.<<CHANNEL_ALIAS>>`, target `<<TARGET>>`) using the urgent alert format from the skill (out-of-range / IL / fees). If nothing triggers, do not send anything — complete the run with output `all clear`.
-   - tools: send_message_to_peer
+2. **Alert** — If any position is out-of-range, IL < -`<<IL_ALERT_PCT>>`%, or claimable ≥ `<<FEE_MILESTONE_USD>>`:
+   `send_message_to_peer` → `telegram.<<CHANNEL_ALIAS>>` → `<<TARGET>>`
+   One message per triggered condition. Format from meteora-report (⚠️ block).
+   If nothing triggers → output `all clear`, send nothing.
+   Tools: send_message_to_peer
