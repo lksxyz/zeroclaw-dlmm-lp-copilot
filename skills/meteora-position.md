@@ -46,13 +46,15 @@ POST ${SOLANA_RPC_URL}
 RPC rejects the query, drop the `dataSize` filter and rely on the owner
 `memcmp` alone.
 
-**RPC auth.** `${SOLANA_RPC_URL}` is key-less by design — never put API keys
-in URLs. If the RPC provider requires a key (e.g. Helius), send it as a
-header on every call: pass `auth_secret` set to `${RPC_AUTH_SECRET}` (the
-name of a `[http_request.secrets]` entry, sent as the `Authorization` header),
-or a literal `headers` object when no secret is configured. If the provider
-rejects the request and you forgot auth, the failure is on your side, not
-the provider's — check the header first.
+**RPC auth.** `${SOLANA_RPC_URL}` may carry the provider's API key as a
+query parameter (e.g. Helius `?api-key=...`). The URL is key-bearing by
+design — keep it out of approval cards by auto-approving `http_request`
+in the agent's risk profile (`auto_approve = ["http_request", ...]`).
+Do NOT move the key to a custom header: ZeroClaw's `http_request` tool
+only supports secrets for the `Authorization` header, so any other header
+key would have to be inlined into every LLM tool call — which lands in
+tracing logs and conversation memory. The URL-on-disk form is the lesser
+evil; rotate the key on the provider dashboard if it ever leaks elsewhere.
 
 **Empty results are valid.** If `getProgramAccounts` returns no accounts (or DAS
 returns no assets), the wallet simply has no DLMM positions — report

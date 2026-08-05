@@ -101,14 +101,12 @@ cp config.example.toml ~/.zeroclaw/config.toml
 # edit RPC URL (Helius / Triton / QuickNode / your own)
 ```
 
-RPC auth goes in `[http_request.secrets]` and is referenced by name with
-`auth_secret` in the skill's `http_request` calls — the key travels as an
-`Authorization` header, never in a URL:
-
-```toml
-[http_request.secrets]
-helius_rpc = "Bearer ${HELIUS_AUTH}"
-```
+The RPC URL may carry the provider's API key as a query parameter (e.g.
+Helius `?api-key=...`). To keep that key out of approval cards, the
+agent's risk profile must auto-approve `http_request` — see the risk
+profile section in `config.example.toml`. `[http_request.secrets]` is for
+providers that accept Bearer auth (custom headers like `x-api-key` are not
+supported by ZeroClaw's `http_request` tool — only `Authorization`).
 
 ### 4. Deploy the Action endpoint
 
@@ -188,9 +186,14 @@ T0/T1 never depend on the plugin — the plugin is pure bonus.
 - **Channel = prompt-injection surface.** Telegram DMs are user-controlled. The agent
   must not authorize any fund-moving action from a DM alone; it only **proposes** via
   an Action URL, the user's wallet signs. See `prompts/injection-tests.md`.
-- **RPC key exposure.** Sent as an `Authorization` header via
-  `[http_request.secrets]` (`auth_secret`); keys never appear in URLs, skill
-  files, or repo. Worker URLs are user-supplied.
+- **RPC key exposure.** Provider API keys (Helius) live in the RPC URL as
+  a query param. Auto-approving `http_request` in the agent's risk profile
+  prevents the URL from being displayed in approval cards; the key remains
+  on-disk in the skill file and `zeroclaw.env`, same level as the Telegram
+  bot token. ZeroClaw's `http_request` tool only supports secrets for the
+  `Authorization` header, so any other header key would have to be inlined
+  into every LLM tool call — worse than the URL form. Rotate the key on
+  the provider dashboard if it ever leaks elsewhere (chat, screenshots).
 - **Third-party trust.** Jupiter (public, read-only), Cloudflare (hosting the
   Action endpoint), and Helius/your RPC. Declared in `SUBMISSION.md` § Threat model.
 - **Blockhash expiry.** T1 rebalance uses **durable nonces** — approval queues can

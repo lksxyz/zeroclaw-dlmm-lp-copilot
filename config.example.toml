@@ -63,9 +63,12 @@ allowed_domains = ["mainnet.helius-rpc.com", "api.jup.ag", "dlmm-api.meteora.ag"
 
 [http_request.secrets]
 # Named secrets the agent can reference with `auth_secret` in http_request.
-# The value is sent verbatim as the Authorization header, so include the
-# scheme ("Bearer "). May be literal, encrypted, or environment-backed:
-# helius_rpc = "Bearer ${HELIUS_AUTH}"
+# Values are sent verbatim as the Authorization header. May be literal,
+# encrypted, or environment-backed as ${ENV_VAR}. Only useful for providers
+# that accept Bearer auth (e.g. a private JSON-RPC behind a corporate proxy).
+# Helius does NOT accept Bearer — keep its key in the URL query param, and
+# rely on auto_approving `http_request` to keep the URL out of approval cards.
+# my_rpc = "Bearer ${MY_RPC_TOKEN}"
 
 # ----- Daily report thresholds -----------------------------------------
 [skills.meteora.thresholds]

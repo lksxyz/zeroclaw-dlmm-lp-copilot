@@ -78,9 +78,8 @@ I will auto-confirm once the signature lands on-chain.
 
 Then start a 60-second poll on `${SOLANA_RPC_URL}` with
 `getSignaturesForAddress(position_pubkey, { limit: 1 })` and `getTransaction`
-to confirm the claim landed. Same RPC auth as `meteora-position`
-(`auth_secret` = `${RPC_AUTH_SECRET}` or a literal `headers` object — never a
-key in the URL). When confirmed, DM:
+to confirm the claim landed. Same RPC URL (with provider key as a query
+param, if any) as `meteora-position`. When confirmed, DM:
 
 ```
 ✓ #<id> claimed: <amount> <X> + <amount> <Y>  (~$<usd>)
