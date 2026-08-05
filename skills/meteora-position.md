@@ -1,58 +1,53 @@
 ---
 name: meteora-position
-version: 2
+version: 3
 custody: T0
-summary: Fetch all DLMM positions for a wallet. Return per-position status with IL, fees, range state.
 ---
 
 # meteora-position
 
-Tool: `http_request`. Never `web_fetch`, `browser`, `web_search_tool`, `weather`.
+YOUR ONLY TOOLS: `http_request`, `read_skill`, `send_message_to_peer`, `memory_recall`. These 4 tools are ALL you have. Other tools (web_fetch, web_search_tool, browser, weather, calculator, glob_search, content_search, file_read, file_write, file_edit, data_management, cron_list, memory_export) DO NOT EXIST in your environment. If you think you need them — you are wrong. Use http_request.
 
 ## Trigger
 
-- DM: `^(report|claim|rebalance)\b` (case-insensitive). Execute immediately, no questions.
-- Cron: `dlmm-daily-report`, `dlmm-range-monitor`
-- Called by: `meteora-claim`, `meteora-rebalance`
+DM `^(report|claim|rebalance)\b` or cron `dlmm-daily-report`/`dlmm-range-monitor`. Execute now. No questions.
 
 ## Steps
 
-### 1. Fetch positions (RPC)
-
-```
-http_request POST ${SOLANA_RPC_URL}
-{"jsonrpc":"2.0","id":1,"method":"getProgramAccounts",
- "params":["${DLMM_PROGRAM}", {"encoding":"base64","filters":[
-   {"dataSize":<POSITION_ACCOUNT_SIZE>},
-   {"memcmp":{"offset":40,"bytes":"${WALLET_PUBKEY}"}}
- ]}]}
-```
-
-offset=40 = 8 (discriminator) + 32 (lb_pair). Drop `dataSize` if RPC rejects.
-
-Empty = valid. Reply "No DLMM positions for this wallet." Never invent.
-
-### 2. Pool state (Meteora)
-
-Per position:
-
-```
-http_request GET ${METEORA_API}/pair/<pool_address>
-```
-
-→ `bin_step`, `active_id`, TVL, vol24h, fees24h.
-
-### 3. SOL price (Jupiter)
+### 1. Get SOL price
 
 ```
 http_request GET https://api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112
 ```
 
-→ `data["So11111111111111111111111111111111111111112"].price`. USDC = 1.0.
+Parse: `data["So11111111111111111111111111111111111111112"].price`. USDC = 1.0.
 
-## Output
+### 2. Get positions from RPC
 
-Per position, ≤ 200 tokens:
+```
+http_request POST ${SOLANA_RPC_URL}
+{"jsonrpc":"2.0","id":1,"method":"getProgramAccounts",
+ "params":["${DLMM_PROGRAM}",{"encoding":"base64","filters":[
+   {"dataSize":<POSITION_ACCOUNT_SIZE>},
+   {"memcmp":{"offset":40,"bytes":"${WALLET_PUBKEY}"}}
+ ]}]}
+```
+
+Offset 40 = 8 discriminator + 32 lb_pair. Drop dataSize if RPC rejects.
+
+Empty result = "No DLMM positions for this wallet." Stop here.
+
+### 3. Get pool state per position
+
+For each position found, extract `lb_pair` (first 32 bytes after discriminator, base58 encode it):
+
+```
+http_request GET https://dlmm-api.meteora.ag/pair/<pool_address>
+```
+
+Returns: `bin_step`, `active_id`, TVL, vol24h, fees24h, `token_x.symbol`, `token_y.symbol`.
+
+## Output per position
 
 ```
 #<id> <X>/<Y> bin_step=<n>
@@ -63,27 +58,23 @@ Per position, ≤ 200 tokens:
   action: hold|rebalance|claim|review
 ```
 
-Action: out-of-range → `rebalance` · IL < `-${IL_ALERT_PCT}%` → `review` · claimable ≥ `${FEE_MILESTONE_USD}` → `claim` · else → `hold`
+Action: out-of-range → `rebalance` · IL < `-${IL_ALERT_PCT}%` → `review` · claimable ≥ `${FEE_MILESTONE_USD}` → `claim` · else → `hold`.
 
-## IL
+## IL formula
 
 ```
-V0 = entry value   (memory.baseline_value_<id>, write on first read)
-HODL = entry amounts × current price
-Vp = on-chain amounts × current price
-IL% = (Vp − HODL) / V0 × 100
+V0 = memory.baseline_value_<id> (write on first read, show -- if missing)
+HODL = entry_x * sol_price + entry_y * 1.0
+Vp = total_x_amount/1e9 * sol_price + total_y_amount/1e6 * 1.0
+IL% = (Vp - HODL) / V0 * 100
 ```
-
-Negative = worse than HODL. No baseline → write V0 now, show `--` for delta.
 
 ## Limits
 
-- ≤ 20 positions. More → page + warn
-- No raw RPC output — shape per block
-- Read-only. Never sign, never build tx
+≤20 positions. No raw RPC output. Read-only (no sign, no tx build).
 
 ## Failures
 
-- RPC 429 → `${SOLANA_RPC_URL_BACKUP}`. Both fail → "RPC unavailable", stop
-- Meteora 404 → mark `stale`, continue
-- Jupiter no data → mark `stale-price`, continue
+- RPC 429 → retry with `${SOLANA_RPC_URL_BACKUP}`. Both fail → "RPC unavailable", stop
+- https://dlmm-api.meteora.ag 404 → mark pool stale, continue
+- https://api.jup.ag no data → mark price stale, continue
