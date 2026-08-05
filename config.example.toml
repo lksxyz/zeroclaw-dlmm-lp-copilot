@@ -10,9 +10,13 @@ model = "claude-sonnet-4-5"
 api_key = "${ANTHROPIC_API_KEY}"          # env var; never inline
 
 # ----- Risk profile -----------------------------------------------------
+# Balanced preset + the tools the cron SOPs need unattended. http_request
+# (RPC / price / Meteora) and send_message_to_peer must be auto-approved or
+# cron runs fail-closed: no approver channel exists to tap "approve".
 [risk_profiles.dlmm-copilot]
-autonomy = "supervised"                   # medium-risk ops need approval
-allowed_origins = ["telegram", "cron"]    # only these triggers may run
+level = "supervised"                   # acts, but requires approval for risky ops
+auto_approve = ["http_request", "send_message_to_peer"]
+# Every other tool (file edits, shell, delegation) still gates normally.
 
 # ----- Telegram channel -------------------------------------------------
 [channels.telegram.dlmm_copilot]
