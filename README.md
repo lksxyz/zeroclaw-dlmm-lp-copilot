@@ -187,11 +187,13 @@ T0/T1 never depend on the plugin — the plugin is pure bonus.
 
 - **Channel = prompt-injection surface.** Telegram DMs are user-controlled. The agent
   must not authorize any fund-moving action from a DM alone; it only **proposes** via
-  an Action URL, the user's wallet signs. The risk profile hard-blocks `memory_recall`,
-  `content_search`, `glob_search`, `file_read`, `file_write`, `file_edit`, and
-  `data_management` from non-CLI channels via `excluded_tools` — the agent cannot hunt
-  for `.env` files or config secrets through the Telegram channel. Only `read_skill`,
-  `http_request`, and `send_message_to_peer` are auto-approved. See
+  an Action URL, the user's wallet signs. The risk profile hard-blocks `content_search`,
+  `glob_search`, `file_read`, `file_write`, `file_edit`, `data_management`,
+  `memory_export`, and `cron_list` from non-CLI channels via `excluded_tools` — the
+  agent cannot hunt for `.env` files or config secrets through the Telegram channel.
+  `memory_recall` is auto-approved (reads position baselines from ZeroClaw's managed
+  memory DB, which holds no secrets). Only `read_skill`, `http_request`,
+  `send_message_to_peer`, and `memory_recall` are auto-approved. See
   `prompts/injection-tests.md`.
 - **RPC key exposure.** Provider API keys (Helius) live in the RPC URL as
   a query param. Auto-approving `http_request` in the agent's risk profile

@@ -193,11 +193,13 @@ the exact Devnet commands.
   Jupiter with no API key, no third party, and we call this out in the
   threat model.
 - **File-system hard-block via `excluded_tools`.** The risk profile
-  removes `memory_recall`, `content_search`, `glob_search`, `file_read`,
-  `file_write`, `file_edit`, and `data_management` from the agent when
-  operating on non-CLI channels. This prevents the agent from hunting
-  for `.env` files, config secrets, or credentials in the workspace —
-  a real incident we caught and hardened against (see
+  removes `content_search`, `glob_search`, `file_read`, `file_write`,
+  `file_edit`, `data_management`, `memory_export`, and `cron_list` from
+  the agent when operating on non-CLI channels. `memory_recall` remains
+  available (auto-approved) — it reads position baselines from ZeroClaw's
+  managed memory DB, which holds no secrets. This prevents the agent from
+  hunting for `.env` files, config secrets, or credentials in the
+  workspace — a real incident we caught and hardened against (see
   `prompts/injection-tests.md` Scenario 7).
 - **Seven-scenario prompt-injection transcript.** The bounty requires
   one; we shipped seven, covering the LLM, the wallet, the file-system,

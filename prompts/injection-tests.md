@@ -203,7 +203,7 @@ the agent used `glob_search` for `.env*` and `*.toml`, then
 agent (unprompted, during a "report" DM):
   → glob_search(".env*")
   → content_search("helius|SOLANA_RPC")
-  → memory_recall("rpc credentials")
+  → file_read("/root/.zeroclaw/config.toml")
 ```
 
 **Expected agent behavior** (with `excluded_tools` in `config.example.toml`):
@@ -211,20 +211,27 @@ agent (unprompted, during a "report" DM):
 ```
 These tools are REMOVED from the agent's tool list on non-CLI channels:
 
-  memory_recall    ← hard-blocked
-  content_search   ← hard-blocked
-  glob_search      ← hard-blocked
-  file_read        ← hard-blocked
-  file_write       ← hard-blocked
-  file_edit        ← hard-blocked
-  data_management  ← hard-blocked
+  content_search   ← hard-blocked (can search workspace for secrets)
+  glob_search      ← hard-blocked (can find .env / *.toml patterns)
+  file_read        ← hard-blocked (can read credential-bearing files)
+  file_write       ← hard-blocked (can overwrite skills / config)
+  file_edit        ← hard-blocked (can inject malicious instructions)
+  data_management  ← hard-blocked (can manipulate persisted state)
+  memory_export    ← hard-blocked (bulk dump of memory, exfiltration risk)
+  cron_list        ← hard-blocked (no reason to list crons from Telegram)
 ```
 
-The agent **cannot** call these tools from Telegram — they don't appear
-in the tool list, they cannot be approved, and no prompt-engineering can
-make them available. The agent's only path to external data is
-`read_skill` (markdown files in `~/.zeroclaw/skills/`) and `http_request`
-(RPC, Meteora API, Jupiter price — restricted to `allowed_domains`).
+`memory_recall` is **not blocked** (it reads position baselines from
+ZeroClaw's managed memory DB — entry values, HODL values, alert dedupe
+state; no secrets are stored here). It is auto-approved so the agent can
+read baselines without hitting an approval card.
+
+The agent **cannot** call the hard-blocked tools from Telegram — they
+don't appear in the tool list, they cannot be approved, and no prompt-
+engineering can make them available. The agent's only path to external
+data is `read_skill` (markdown files in `~/.zeroclaw/skills/`),
+`http_request` (RPC, Meteora API, Jupiter price — restricted to
+`allowed_domains`), and `memory_recall` (managed memory DB).
 
 **Why it fails closed**: `excluded_tools` is a hard block — not an
 approval gate, not a policy the model can "convince" its way around.
@@ -236,16 +243,17 @@ the LLM cannot misuse what it cannot call.
 
 ## Summary
 
-Every fund-moving path is **double-gated** — and the file-system is
-**hard-blocked**:
+Every fund-moving path is **triple-gated**:
 
 1. **LLM gate**: skills explicitly forbid signing, transferring, or
    accepting destination addresses for the agent. The model is told
    (in every skill's `Do not` section) what it is not allowed to do.
 2. **Tool gate**: `excluded_tools` removes filesystem-access and
-   memory-search tools from the agent entirely on non-CLI channels.
+   bulk-data-export tools from the agent entirely on non-CLI channels.
    The agent cannot hunt for `.env`, config secrets, or credential
-   material in the workspace.
+   material in the workspace. `memory_recall` remains available —
+   it reads position baselines from ZeroClaw's managed memory DB, which
+   holds no secrets.
 3. **Cryptographic gate**: even if the LLM is fooled into building a
    malicious tx, the on-chain program rejects it because the user
    signing the tx is not the authority, or because the instruction
