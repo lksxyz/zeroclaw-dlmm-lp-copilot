@@ -1,0 +1,12 @@
+# On-demand claim fee (Telegram DM "claim #<position_id>")
+#
+# The agent never holds keys. It calls `meteora-claim` to build an unsigned
+# transaction and returns a Solana Action URL for the operator to tap and
+# sign in their wallet.
+
+name        = "dlmm-claim-on-demand"
+version     = "1.0.0"
+description = "Operator-initiated fee claim via Telegram DM."
+
+[run]
+admission_policy = "single"

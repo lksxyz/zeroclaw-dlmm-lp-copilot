@@ -1,0 +1,12 @@
+# On-demand rebalance (Telegram DM "rebalance #<position_id>")
+#
+# Requires the Action endpoint and a durable nonce account. Builds an
+# unsigned removeLiquidity + addLiquidity pair and returns a Solana
+# Action URL for the operator to tap and sign.
+
+name        = "dlmm-rebalance-on-demand"
+version     = "1.0.0"
+description = "Operator-initiated DLMM position rebalance via Telegram DM."
+
+[run]
+admission_policy = "single"

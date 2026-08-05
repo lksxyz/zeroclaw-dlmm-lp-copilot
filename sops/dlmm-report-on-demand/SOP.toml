@@ -1,0 +1,19 @@
+# On-demand DLMM position report (Telegram DM "report")
+#
+# Triggered by the agent when the operator DMs the word "report" (with or
+# without a position id). Returns the same Telegram-formatted report as
+# the daily cron, but only for the requested position when an id is given,
+# or all positions when the message is bare "report".
+
+name        = "dlmm-report-on-demand"
+version     = "1.0.0"
+description = "Operator-initiated DLMM position report via Telegram DM."
+
+[run]
+admission_policy = "coalesce"
+coalesce_window_secs = 5
+
+[[triggers]]
+type = "channel"
+channel = "telegram.dlmm_copilot"
+intent_match = "^report\\s*(#?\\d+)?\\s*$"
