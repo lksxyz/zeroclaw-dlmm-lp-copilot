@@ -1,0 +1,9 @@
+package zeroclaw:tool@0.1.0;
+
+interface plugin {
+    execute: func(args: string) -> result<string, string>;
+}
+
+world tool-plugin {
+    export plugin;
+}

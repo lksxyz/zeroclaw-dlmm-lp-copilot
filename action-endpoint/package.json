@@ -1,0 +1,27 @@
+{
+  "name": "dlmm-lp-copilot-action-endpoint",
+  "version": "0.1.0",
+  "description": "Self-hosted Solana Action endpoint for DLMM LP Copilot (claim, rebalance)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@meteora-ag/dlmm": "^1.9.14",
+    "@solana/actions": "^1.6.6",
+    "@solana/web3.js": "^1.98.4",
+    "bn.js": "^5.2.5",
+    "bs58": "^5.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240620.0",
+    "@types/bn.js": "^5.2.0",
+    "@types/node": "^26.1.2",
+    "typescript": "^5.5.0",
+    "wrangler": "^3.65.0"
+  }
+}

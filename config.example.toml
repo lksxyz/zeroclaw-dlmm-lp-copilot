@@ -1,0 +1,80 @@
+# ZeroClaw config for DLMM LP Copilot
+# ----------------------------------------------------------------------
+# Copy to ~/.zeroclaw/config.toml and fill in redacted fields.
+# All secrets are read via `config_read` (encrypted at rest by the host).
+# ----------------------------------------------------------------------
+
+# ----- Provider ---------------------------------------------------------
+[providers.models.anthropic.copilot]
+model = "claude-sonnet-4-5"
+api_key = "${ANTHROPIC_API_KEY}"          # env var; never inline
+
+# ----- Risk profile -----------------------------------------------------
+[risk_profiles.dlmm-copilot]
+autonomy = "supervised"                   # medium-risk ops need approval
+allowed_origins = ["telegram", "cron"]    # only these triggers may run
+
+# ----- Telegram channel -------------------------------------------------
+[channels.telegram.dlmm_copilot]
+bot_token = "${TELEGRAM_BOT_TOKEN}"       # from @BotFather
+chat_id   = "${TELEGRAM_CHAT_ID}"         # your chat id
+poll_interval_seconds = 5
+sender_match = "handle"                   # @username match (per registry v0.2)
+
+# ----- Agent -----------------------------------------------------------
+[agents.dlmm_copilot]
+provider  = "anthropic.copilot"
+risk_profile = "dlmm-copilot"
+skills_dir = "~/.zeroclaw/skills"
+sops_dir   = "~/.zeroclaw/sops"
+memory     = "sqlite:~/.zeroclaw/memory.db"
+
+# ----- Solana RPC + Meteora config -------------------------------------
+# RPC: user-supplied. Helius / Triton / QuickNode / your own node.
+# NEVER put keys in code. NEVER commit a populated config.toml.
+[skills.meteora]
+rpc_url                = "${SOLANA_RPC_URL}"          # e.g. https://api.devnet.solana.com
+rpc_url_backup         = "${SOLANA_RPC_URL_BACKUP}"   # optional fallback
+meteora_api            = "https://dlmm-api.meteora.ag"
+dlmm_program           = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSK9q8Mfev5Rq"   # mainnet
+# For Devnet, override per environment:
+# dlmm_program         = "<devnet-program-id>"
+wallet_pubkey          = "${OPERATOR_WALLET_PUBKEY}"  # base58, the LP's wallet
+report_chat_id         = "${TELEGRAM_CHAT_ID}"
+action_endpoint_base   = "${ACTION_ENDPOINT_BASE}"    # e.g. https://dlmm-copilot.example.workers.dev
+nonce_account         = "${DURABLE_NONCE_ACCOUNT}"   # base58, for rebalance
+nonce_authority       = "${OPERATOR_WALLET_PUBKEY}"  # signs the nonce advance
+
+# Price feed: Switchboard Crossbar (Pyth Hermes unauth deprecates 2026-07-31)
+# Public endpoint, no key required. Best-effort, fine for cron alerts.
+[skills.meteora.prices]
+switchboard_crossbar = "https://crossbar.switchboard-oracle.xyz"
+feed_sol_usd          = "sol_usd"
+feed_usdc_usd         = "usdc_usd"
+
+# ----- Daily report thresholds -----------------------------------------
+[skills.meteora.thresholds]
+out_of_range_alert    = true                  # alert when active_bin outside position range
+il_alert_pct          = 5.0                   # alert when IL vs HODL > 5%
+fee_milestone_usd     = 1.0                   # DM when claimable fees > $1
+daily_report_hour     = 8                     # 08:00 local
+daily_report_tz       = "America/Sao_Paulo"   # Brazil-first welcome
+range_check_minutes   = 30
+
+# ----- SOP triggers -----------------------------------------------------
+[sops.triggers]
+daily_report = { kind = "cron", expr = "0 8 * * *",   tz = "America/Sao_Paulo" }
+range_check  = { kind = "cron", expr = "*/30 * * * *" }
+
+# ----- Channel-triggered SOPs (DMs the agent) --------------------------
+# Telegram DM "claim #1234" / "rebalance #1234" / "report" → SOP runs.
+[sops.triggers.dm]
+kind = "channel"
+channel = "telegram.dlmm_copilot"
+intent_match = "^(claim|rebalance|report)\\s*(#?\\d+)?\\s*$"
+
+# ----- Memory persistence ----------------------------------------------
+# Per-position baseline (so the report can show delta vs yesterday).
+[memory]
+path = "sqlite:~/.zeroclaw/memory.db"
+schema = "v1"

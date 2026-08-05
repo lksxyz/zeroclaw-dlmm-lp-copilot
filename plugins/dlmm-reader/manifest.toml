@@ -1,0 +1,11 @@
+name = "dlmm-reader"
+version = "0.1.0"
+description = "Read Meteora DLMM positions, return per-position status with IL and range state."
+author = "DLMM LP Copilot contributors"
+wasm_path = "dlmm_reader.wasm"
+capabilities = ["tool"]
+permissions = ["http_client", "config_read"]
+
+# Host-gated: this plugin is part of the DLMM LP Copilot submission
+# and lives in the submission repo, not the upstream registry.
+registry = false

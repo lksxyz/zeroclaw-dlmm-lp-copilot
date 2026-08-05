@@ -1,0 +1,51 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install python (for TOML parse)
+        run: sudo apt-get update && sudo apt-get install -y python3
+
+      - name: install jq
+        run: sudo apt-get install -y jq
+
+      - name: validate config.example.toml
+        run: ./scripts/validate-config.sh
+
+      - name: validate skill frontmatter
+        run: ./scripts/validate-skills.sh
+
+      - name: install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cargo test (host) — plugin pure core
+        working-directory: plugins/dlmm-reader
+        run: cargo test --locked
+
+  worker-typecheck:
+    name: worker-typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: install worker deps
+        working-directory: action-endpoint
+        run: npm install
+
+      - name: tsc --noEmit
+        working-directory: action-endpoint
+        run: npx tsc --noEmit
