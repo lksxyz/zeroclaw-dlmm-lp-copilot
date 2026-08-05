@@ -54,7 +54,7 @@ Cut to title card: **"DLMM LP Copilot · T0 read + T1 unsigned tx"** (4 s).
 [2026-07-30 08:00:00] step fetch: skill meteora-position
 [2026-07-30 08:00:01] rpc: getProgramAccounts 1.4 KB → 3 positions
 [2026-07-30 08:00:02] meteora-api: 3 pool refreshes (89 ms / 91 ms / 86 ms)
-[2026-07-30 08:00:02] switchboard: sol_usd=150.42 (cache hit 7s)
+[2026-07-30 08:00:02] jupiter: sol_usd=150.42 (cache hit 7s)
 [2026-07-30 08:00:02] step format: skill meteora-report
 [2026-07-30 08:00:03] step send: telegram.dlmm_copilot ok
 [2026-07-30 08:00:03] step persist_baseline: 3 keys written

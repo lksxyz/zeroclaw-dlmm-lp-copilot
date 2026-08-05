@@ -22,7 +22,7 @@ ZeroClaw (Rust runtime, Telegram, SOPs, memory, MCP, http)
    ↓ reads
 skills/*.md           — what the LLM knows how to do
    ↓ scheduled by
-sops/*.toml           — when to do it (cron, channel trigger, approval)
+sops/dlmm-*/          — cron SOPs: SOP.toml (trigger + metadata) + SOP.md (steps)
    ↓ falls back to
 http_request / web_fetch + memory    — agent's only outbound tools
    ↓ proposes actions through
@@ -43,17 +43,15 @@ need to change between use cases:
 - `config.example.toml` — the ZeroClaw config shape. Rename agents,
   channels, and `skills.meteora.*` blocks; leave `[risk_profiles.*]`,
   `[sops.triggers]`, `[memory]` alone.
-- `sops/daily-report.toml` — the cron pattern (fetch → format → send →
-  persist). Rename skills, keep the structure.
-- `sops/range-monitor.toml` — the alert pattern (fetch → dedupe → branch
-  → channel_send → persist_alert). The `branch` + `memory_check`
-  dedupe is the key trick — copy it.
+- `sops/dlmm-daily-report/` and `sops/dlmm-range-monitor/` — the cron SOP
+  pattern (SOP.toml + SOP.md). Fetch → format → send → persist for daily;
+  fetch → dedupe → branch → alert for range monitor. Copy the structure.
 - `prompts/injection-tests.md` — the six scenarios. Add more for
   your use case; keep the same shape ("Threat → Expected behavior →
   Why it fails closed").
 - `action-endpoint/` — the worker. Replace `dlmm.ts` with the protocol
-  you're integrating. The `index.ts` GET/POST handlers, the cors
-  plumbing, and the `prices.ts` Switchboard reader are reusable.
+  you're integrating. The `index.ts` GET/POST handlers and the cors
+  plumbing are reusable.
 
 ## What to change for a different protocol
 
@@ -85,7 +83,7 @@ need to change between use cases:
 |----------|--------------|
 | A new channel (e.g. Discord) | Add a `channels.*` block to `config.example.toml`; the upstream `zeroclaw-labs/zeroclaw-plugins` already has Discord, Matrix, etc. |
 | A new skill | Add `skills/<name>.md` with frontmatter `name`/`version`/`custody`/`summary` |
-| A new SOP | Add `sops/<name>.toml` with a `[trigger]` and `[steps.*]` list |
+| A new SOP | Add `sops/<name>/SOP.toml` (trigger + metadata) + `SOP.md` (steps) |
 | A new protocol tx builder | Add `action-endpoint/src/<protocol>.ts` and import in `index.ts` |
 | A new plugin (Tier 3) | Add `plugins/<name>/` with `Cargo.toml`, `manifest.toml`, `src/lib.rs`, `src/<core>.rs`, `tests/` |
 | A new prompt-injection test | Append to `prompts/injection-tests.md` |
@@ -123,7 +121,7 @@ the cheapest way to catch a malformed config before judging.
   writing before any code.
 - **Use cases that don't fit Telegram/Discord/etc.** The starter
   assumes chat channels. If your agent is API-only, drop the
-  channel blocks and the `sops/triggers.dm` block.
+  channel config blocks.
 
 ## How to ship a fork
 

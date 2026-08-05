@@ -33,10 +33,15 @@ in `America/Sao_Paulo` timezone (configurable); the skill is timezone-agnostic.
 
 - **Telegram channel plugin** — `plugins/telegram` from the upstream
   `zeroclaw-labs/zeroclaw-plugins` registry
-- **SOP engine with cron triggers** — `sops/daily-report.toml` and
-  `sops/range-monitor.toml`
-- **Channel-triggered SOPs** — Telegram DMs matching
-  `^(claim|rebalance|report)\s*#?\d*\s*$` invoke the same skills
+- **SOP engine with cron triggers** — `sops/dlmm-daily-report/` and
+  `sops/dlmm-range-monitor/`
+- **Agent-driven on-demand DMs** — Telegram DMs matching
+  `^(claim|rebalance|report)\s*#?\d*\s*$` are handled by the agent reading
+  the meteora skills (`meteora-position` for report, `meteora-claim` /
+  `meteora-rebalance` for T1 tx building). ZeroClaw's `ChannelMessage`
+  only populates `internal_sop_event` for git/forge channels, so Telegram
+  DMs flow through the agent runtime (not channel-triggered SOPs) by
+  design. On-demand operations follow the same skill pipeline as cron.
 - **Memory** — position value baselines + alert dedupe (4h TTL)
 - **Built-in `http_request` / `web_fetch`** — every external call goes
   through the host's HTTP egress, with the standard private-host block
@@ -104,14 +109,16 @@ recent-blockhash window. The rebalance path uses a **durable nonce**:
 One nonce account per concurrent pending rebalance — a known limitation,
 documented in `skills/meteora-rebalance.md` and the worker comments.
 
-**Pyth deprecation 2026-07-31.** Switchboard Crossbar is the primary
-price feed. Public, unauthenticated, best-effort. The agent does not
-demo on Pyth Hermes (unauthenticated endpoints stop serving 2026-07-31,
-which is *tomorrow*).
+**Pyth deprecation 2026-07-31.** Jupiter Price API is the primary
+price feed. Public, unauthenticated, rate-limited — fine for cron alerts
+and on-demand reports. The agent does not demo on Pyth Hermes
+(unauthenticated endpoints stop serving 2026-07-31, already past) or
+Switchboard Crossbar (DNS went dark 2026-08).
 
 **Third-party trust declared:**
 
-- **Switchboard** (public, read-only feed) — best-effort
+- **Jupiter Price API** (public, read-only feed) — rate-limited, no key
+  needed
 - **Cloudflare** (hosts the action endpoint) — worker source is in this
   repo, reproducible
 - **Helius / user RPC** (Solana JSON-RPC) — user-supplied, declared in
@@ -122,8 +129,8 @@ which is *tomorrow*).
   itself never imports it.
 
 The agent holds no private keys. The wallet holds all funds. The agent
-holds an RPC key (encrypted at rest via `config_read`) and a Switchboard
-endpoint URL (public).
+holds an RPC key (encrypted at rest via `config_read`). Price data comes
+from Jupiter Price API (public, unauthenticated).
 
 ## Reproducibility — set this up in an evening
 
@@ -135,7 +142,7 @@ zeroclaw quickstart
 # 2. Copy skills, SOPs, config
 git clone https://github.com/<you>/dlmm-lp-copilot
 cp dlmm-lp-copilot/skills/*.md  ~/.zeroclaw/skills/
-cp dlmm-lp-copilot/sops/*.toml   ~/.zeroclaw/sops/
+cp -r dlmm-lp-copilot/sops/dlmm-*  ~/.zeroclaw/sops/
 cp dlmm-lp-copilot/config.example.toml  ~/.zeroclaw/config.toml
 # edit config.toml, fill in RPC + Telegram
 
@@ -181,12 +188,20 @@ the exact Devnet commands.
 - **Durable nonces for the rebalance path.** The bounty flags blockhash
   expiry as a trap and calls it "worth points" to solve well. We solved
   it.
-- **Switchboard Crossbar as the price feed.** Pyth Core deprecates
-  2026-07-31 (mid-bounty, tomorrow). We use Switchboard with no API
-  key, no third party, and we call this out in the threat model.
-- **Six-scenario prompt-injection transcript.** The bounty requires one;
-  we shipped six, covering the LLM, the wallet, and the on-chain
-  program boundaries.
+- **Jupiter Price API as the price feed.** Pyth Core deprecated
+  2026-07-31 and Switchboard Crossbar DNS went dark 2026-08. We use
+  Jupiter with no API key, no third party, and we call this out in the
+  threat model.
+- **File-system hard-block via `excluded_tools`.** The risk profile
+  removes `memory_recall`, `content_search`, `glob_search`, `file_read`,
+  `file_write`, `file_edit`, and `data_management` from the agent when
+  operating on non-CLI channels. This prevents the agent from hunting
+  for `.env` files, config secrets, or credentials in the workspace —
+  a real incident we caught and hardened against (see
+  `prompts/injection-tests.md` Scenario 7).
+- **Seven-scenario prompt-injection transcript.** The bounty requires
+  one; we shipped seven, covering the LLM, the wallet, the file-system,
+  and the on-chain program boundaries.
 
 ## Future work (designed, not implemented)
 

@@ -19,7 +19,7 @@ Worker
 [ ] `make worker-deploy` succeeded
 [ ] `curl ${ACTION_ENDPOINT_BASE}/health` returns 200
 [ ] Both /actions/claim and /actions/rebalance return valid Solana Action JSON
-[ ] Switchboard Crossbar reachable (price feed) — checked at deploy time
+[ ] Jupiter Price API reachable (price feed) — curl https://api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112
 [ ] wrangler tail shows no 5xx in the last 24h
 
 Devnet demo

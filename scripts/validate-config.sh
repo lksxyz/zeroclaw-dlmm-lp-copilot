@@ -57,7 +57,7 @@ fi
 echo "✓ no inline secrets in config.example.toml"
 
 # 3. All SOP TOMLs parse
-for f in "$REPO_ROOT"/sops/*.toml; do
+for f in "$REPO_ROOT"/sops/dlmm-*/SOP.toml; do
   python3 -c "import sys, tomllib; tomllib.load(open(sys.argv[1], 'rb'))" "$f" \
     || { echo "✗ $f does not parse as TOML" >&2; exit 1; }
   echo "✓ $f"

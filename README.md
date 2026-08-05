@@ -13,9 +13,12 @@ You have 3-5 DLMM positions (SOL/USDC, JUP/USDC, etc.). The agent runs in your T
 
 - **Daily 08:00** — formatted position report (value, fees 24h, range status, IL vs HODL)
 - **Every 30 min** — out-of-range check; urgent alert if any position slipped out
-- **On demand** — DM the agent `claim #1234` or `rebalance #1234` and it prepares an
-  unsigned transaction behind a Solana Action URL. Tap it in Telegram → Phantom opens
-  → preview → sign in your wallet. **The agent never holds keys.**
+- **On demand** — DM the agent `report`, `claim #1234`, or `rebalance #1234` and the
+  agent reads the meteora skills, fetches on-chain state, and responds. For claim and
+  rebalance it prepares an unsigned transaction behind a Solana Action URL. Tap it in
+  Telegram → Phantom opens → preview → sign in your wallet. **The agent never holds keys.**
+  On-demand operations flow through the agent (not cron SOPs) because ZeroClaw's Telegram
+  channel does not populate `internal_sop_event` — only the git/forge channel does.
 - **Fee milestone** — pings you when claimable fees cross a threshold
 
 ## Why T0 + T1, not T2
@@ -38,14 +41,13 @@ dlmm-lp-copilot/
 │   ├── meteora-report.md           # T0: daily report format (Telegram)
 │   ├── meteora-claim.md            # T1: build unsigned claimFee tx, return Action URL
 │   └── meteora-rebalance.md        # T1: build unsigned removeLiquidity + addLiquidity, durable nonce
-├── sops/                           # ZeroClaw Standard Operating Procedures (TOML)
-│   ├── daily-report.toml           # cron 08:00
-│   └── range-monitor.toml          # cron */30 minutes
+├── sops/                           # ZeroClaw cron SOPs (TOML + SOP.md)
+│   ├── dlmm-daily-report/          # cron 08:00 daily position report
+│   └── dlmm-range-monitor/         # cron */30 minute out-of-range alert
 ├── action-endpoint/                # self-hosted Solana Action endpoint (Cloudflare Worker)
 │   ├── src/
 │   │   ├── index.ts                # GET (metadata) + POST (unsigned tx)
-│   │   ├── dlmm.ts                 # tx builders (claim, rebalance)
-│   │   └── prices.ts               # Jupiter price reader
+│   │   └── dlmm.ts                 # tx builders (claim, rebalance)
 │   ├── wrangler.toml
 │   └── package.json
 ├── prompts/
@@ -61,7 +63,7 @@ dlmm-lp-copilot/
         ├── src/
         │   ├── lib.rs              # thin shim
         │   └── decoder.rs          # pure core (host-testable)
-        ├── wit/v0/world.wit
+        ├── wit/world.wit
         └── tests/
 ```
 
@@ -143,7 +145,7 @@ Put the worker URL in `config.toml` under `[skills.meteora]`.
 ```bash
 mkdir -p ~/.zeroclaw/skills ~/.zeroclaw/sops
 cp skills/*.md ~/.zeroclaw/skills/
-cp sops/*.toml ~/.zeroclaw/sops/
+cp -r sops/dlmm-* ~/.zeroclaw/sops/
 ```
 
 ### 6. Run
@@ -185,7 +187,12 @@ T0/T1 never depend on the plugin — the plugin is pure bonus.
 
 - **Channel = prompt-injection surface.** Telegram DMs are user-controlled. The agent
   must not authorize any fund-moving action from a DM alone; it only **proposes** via
-  an Action URL, the user's wallet signs. See `prompts/injection-tests.md`.
+  an Action URL, the user's wallet signs. The risk profile hard-blocks `memory_recall`,
+  `content_search`, `glob_search`, `file_read`, `file_write`, `file_edit`, and
+  `data_management` from non-CLI channels via `excluded_tools` — the agent cannot hunt
+  for `.env` files or config secrets through the Telegram channel. Only `read_skill`,
+  `http_request`, and `send_message_to_peer` are auto-approved. See
+  `prompts/injection-tests.md`.
 - **RPC key exposure.** Provider API keys (Helius) live in the RPC URL as
   a query param. Auto-approving `http_request` in the agent's risk profile
   prevents the URL from being displayed in approval cards; the key remains
@@ -198,9 +205,9 @@ T0/T1 never depend on the plugin — the plugin is pure bonus.
   Action endpoint), and Helius/your RPC. Declared in `SUBMISSION.md` § Threat model.
 - **Blockhash expiry.** T1 rebalance uses **durable nonces** — approval queues can
   outlive the ~90 s blockhash window. One nonce account per concurrent pending tx.
-- **Feed reliability.** Jupiter Price API is the primary feed; Switchboard
-  Crossbar DNS went dark 2026-08; no
-  demo is on a dying endpoint.
+- **Feed reliability.** Jupiter Price API is the primary feed (public,
+  unauthenticated). Pyth Hermes deprecated 2026-07-31; Switchboard Crossbar
+  DNS went dark 2026-08. No demo runs on a dead endpoint.
 
 ## Reproducing the demo
 

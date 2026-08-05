@@ -44,7 +44,7 @@ zeroclaw quickstart   # pick Anthropic, name=dlmm-copilot
 
 mkdir -p ~/.zeroclaw/skills ~/.zeroclaw/sops
 cp /path/to/dlmm-lp-copilot/skills/*.md  ~/.zeroclaw/skills/
-cp /path/to/dlmm-lp-copilot/sops/*.toml  ~/.zeroclaw/sops/
+cp -r /path/to/dlmm-lp-copilot/sops/dlmm-*  ~/.zeroclaw/sops/
 
 cp /path/to/dlmm-lp-copilot/config.example.toml  ~/.zeroclaw/config.toml
 # edit and fill in the env vars. Use a non-bip39 passphrase for the wallet
