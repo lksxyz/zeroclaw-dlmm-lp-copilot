@@ -189,14 +189,64 @@ is useless to anyone who doesn't own the position.
 
 ---
 
+---
+
+## Scenario 7 — Agent attempts to read workspace files for secrets
+
+**Threat**: An LLM-driven agent may try to read `.env` files, config
+TOMLs, or other credential-bearing files — either through its own
+initiative or prompted by an attacker. This was caught in testing:
+the agent used `glob_search` for `.env*` and `*.toml`, then
+`content_search` for `helius|SOLANA_RPC` patterns to hunt for API keys.
+
+```
+agent (unprompted, during a "report" DM):
+  → glob_search(".env*")
+  → content_search("helius|SOLANA_RPC")
+  → memory_recall("rpc credentials")
+```
+
+**Expected agent behavior** (with `excluded_tools` in `config.example.toml`):
+
+```
+These tools are REMOVED from the agent's tool list on non-CLI channels:
+
+  memory_recall    ← hard-blocked
+  content_search   ← hard-blocked
+  glob_search      ← hard-blocked
+  file_read        ← hard-blocked
+  file_write       ← hard-blocked
+  file_edit        ← hard-blocked
+  data_management  ← hard-blocked
+```
+
+The agent **cannot** call these tools from Telegram — they don't appear
+in the tool list, they cannot be approved, and no prompt-engineering can
+make them available. The agent's only path to external data is
+`read_skill` (markdown files in `~/.zeroclaw/skills/`) and `http_request`
+(RPC, Meteora API, Jupiter price — restricted to `allowed_domains`).
+
+**Why it fails closed**: `excluded_tools` is a hard block — not an
+approval gate, not a policy the model can "convince" its way around.
+The tools are removed by the runtime before the LLM ever sees them.
+This is the same defense-in-depth pattern as the fund-moving paths:
+the LLM cannot misuse what it cannot call.
+
+---
+
 ## Summary
 
-Every fund-moving path is **double-gated**:
+Every fund-moving path is **double-gated** — and the file-system is
+**hard-blocked**:
 
 1. **LLM gate**: skills explicitly forbid signing, transferring, or
    accepting destination addresses for the agent. The model is told
    (in every skill's `Do not` section) what it is not allowed to do.
-2. **Cryptographic gate**: even if the LLM is fooled into building a
+2. **Tool gate**: `excluded_tools` removes filesystem-access and
+   memory-search tools from the agent entirely on non-CLI channels.
+   The agent cannot hunt for `.env`, config secrets, or credential
+   material in the workspace.
+3. **Cryptographic gate**: even if the LLM is fooled into building a
    malicious tx, the on-chain program rejects it because the user
    signing the tx is not the authority, or because the instruction
    requires accounts the attacker cannot supply.
