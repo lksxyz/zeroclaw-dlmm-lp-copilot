@@ -45,7 +45,7 @@ dlmm-lp-copilot/
 │   ├── src/
 │   │   ├── index.ts                # GET (metadata) + POST (unsigned tx)
 │   │   ├── dlmm.ts                 # tx builders (claim, rebalance)
-│   │   └── prices.ts               # Switchboard reader
+│   │   └── prices.ts               # Jupiter price reader
 │   ├── wrangler.toml
 │   └── package.json
 ├── prompts/
@@ -92,7 +92,7 @@ TELEGRAM_CHAT_ID=<your-chat-id>
 ### 3. Configure RPC + price feed
 
 Pyth Hermes unauthenticated endpoints **stop serving on 2026-07-31**. We use
-**Switchboard Crossbar** as the primary price feed. Public, unauthenticated,
+**Jupiter Price API** as the primary price feed. Public, unauthenticated,
 rate-limited — fine for cron alerts.
 
 ```bash
@@ -181,11 +181,12 @@ T0/T1 never depend on the plugin — the plugin is pure bonus.
   an Action URL, the user's wallet signs. See `prompts/injection-tests.md`.
 - **RPC key exposure.** Kept in encrypted-at-rest `config_read`. Worker URLs are
   user-supplied.
-- **Third-party trust.** Switchboard (public, read-only), Cloudflare (hosting the
+- **Third-party trust.** Jupiter (public, read-only), Cloudflare (hosting the
   Action endpoint), and Helius/your RPC. Declared in `SUBMISSION.md` § Threat model.
 - **Blockhash expiry.** T1 rebalance uses **durable nonces** — approval queues can
   outlive the ~90 s blockhash window. One nonce account per concurrent pending tx.
-- **Pyth deprecation 2026-07-31.** Switchboard Crossbar is the primary feed; no
+- **Feed reliability.** Jupiter Price API is the primary feed; Switchboard
+  Crossbar DNS went dark 2026-08; no
   demo is on a dying endpoint.
 
 ## Reproducing the demo

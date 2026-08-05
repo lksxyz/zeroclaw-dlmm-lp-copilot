@@ -33,7 +33,8 @@ Call `meteora-position` for `#<id>`. You need:
 - `operator_wallet_pubkey`
 - `current_lower_bin_id`, `current_upper_bin_id`
 - `current_active_id` (the active bin)
-- 24h price range (Switchboard historical) — for the proposal
+- 24h price range (Jupiter price history if available, else the active bin
+  range from the pool) — for the proposal
 
 **Propose a new range**:
 

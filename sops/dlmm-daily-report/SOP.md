@@ -7,9 +7,10 @@
    - `${SOLANA_RPC_URL_BACKUP}` = `<<RPC_URL_BACKUP>>` (leave empty if none)
    - `${DLMM_PROGRAM}` = `LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSK9q8Mfev5Rq` (mainnet)
    - `${METEORA_API}` = `https://dlmm-api.meteora.ag`
-   - `${SWITCHBOARD_CROSSBAR}` = `https://crossbar.switchboard-oracle.xyz` (feeds `sol_usd`, `usdc_usd`)
+   - Price feed: `GET https://api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112` for SOL/USD; USDC = 1:1 USD
    - `${WALLET_PUBKEY}` = `<<WALLET_PUBKEY>>`
    - `${FEE_MILESTONE_USD}` = `<<FEE_MILESTONE_USD>>`
+   An empty account list means the wallet has no DLMM positions — that is a valid outcome. Report `No DLMM positions for this wallet` honestly; it is not an error and you must not invent positions.
    Return the complete per-position block summary (range, value, fees, IL, action) as your step output.
    - tools: read_skill, http_request
 

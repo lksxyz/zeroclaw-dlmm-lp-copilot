@@ -45,12 +45,12 @@ action_endpoint_base   = "${ACTION_ENDPOINT_BASE}"    # e.g. https://dlmm-copilo
 nonce_account         = "${DURABLE_NONCE_ACCOUNT}"   # base58, for rebalance
 nonce_authority       = "${OPERATOR_WALLET_PUBKEY}"  # signs the nonce advance
 
-# Price feed: Switchboard Crossbar (Pyth Hermes unauth deprecates 2026-07-31)
-# Public endpoint, no key required. Best-effort, fine for cron alerts.
+# Price feed: Jupiter Price API (public, unauthenticated). Pyth Hermes unauth
+# deprecates 2026-07-31; Switchboard Crossbar DNS went dark 2026-08.
 [skills.meteora.prices]
-switchboard_crossbar = "https://crossbar.switchboard-oracle.xyz"
-feed_sol_usd          = "sol_usd"
-feed_usdc_usd         = "usdc_usd"
+jupiter_price_api = "https://api.jup.ag/price/v2"
+feed_sol_id       = "So11111111111111111111111111111111111111112"
+usdc_usd          = 1.0                    # stablecoin peg
 
 # ----- Daily report thresholds -----------------------------------------
 [skills.meteora.thresholds]

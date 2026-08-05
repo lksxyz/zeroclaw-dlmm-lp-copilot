@@ -42,9 +42,14 @@ POST ${SOLANA_RPC_URL}
   ] }
 ```
 
-`POSITION_ACCOUNT_SIZE` and `POSITION_OWNER_OFFSET` are the Meteora DLMM Position
-account layout (see `plugins/dlmm-reader/src/decoder.rs` for the parsed schema
-or fetch the IDL from `meteora-ag/dlmm-sdk`).
+`POSITION_OWNER_OFFSET` is 40 (8-byte discriminator + 32-byte lb_pair). If your
+RPC rejects the query, drop the `dataSize` filter and rely on the owner
+`memcmp` alone.
+
+**Empty results are valid.** If `getProgramAccounts` returns no accounts (or DAS
+returns no assets), the wallet simply has no DLMM positions — report
+`No DLMM positions for this wallet` honestly. Do not treat an empty result as
+an error, and never invent positions.
 
 **If you can't decode the borsh locally**, use Helius DAS as a fallback:
 
@@ -70,16 +75,16 @@ GET ${METEORA_API}/pair/${pool_address}
 Returns: `bin_step`, `active_id`, `active_bin_price`, `token_x`, `token_y`,
 24h volume, 24h fees, TVL.
 
-### 3. Mark price (Switchboard Crossbar)
+### 3. Mark price (Jupiter Price API)
 
-Switchboard Crossbar is the primary price feed. Public, unauthenticated.
-Pyth Hermes unauthenticated endpoints stop serving 2026-07-31.
+Jupiter Price API is the primary price feed. Public, unauthenticated.
 
 ```
-GET ${SWITCHBOARD_CROSSBAR}/latest?feedKey=sol_usd
+GET https://api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112
 ```
 
-Response shape: `{ "results": [{ "value": <number>, ... }] }`.
+Response shape: `{ "data": { "So11111111111111111111111111111111111111112": { "price": "<usd>" } } }`.
+USDC is treated as 1:1 USD (stablecoin peg).
 
 Use the SOL/USD and USDC/USD prices to:
 
@@ -134,5 +139,5 @@ Report with a sign.
   retry once after 5 s then surface "RPC unavailable" to the caller.
 - Meteora API returns 404 for a pool → that pool is deprecated; mark position
   as `stale` and surface to the user.
-- Switchboard feed stale (> 60 s) → mark the IL block as `stale-price` and
-  continue; do not block the report.
+- Jupiter price API fails or returns no `data` → mark the IL block as
+  `stale-price` and continue; do not block the report.
