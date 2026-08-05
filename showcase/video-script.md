@@ -186,8 +186,10 @@ submission ini. Custody policy: agent tidak sign — user wallet yang
 sign via `claim #<id>` atau `rebalance #<id>`.
 ```
 
-**Frame**: terminal showing `risk_profiles.dlmm-copilot.autonomy = "supervised"`
-and `[skills.meteora.autocompound]` is missing from the config.
+**Frame**: terminal showing `risk_profiles.dlmm.level = "supervised"` and the
+`excluded_tools` list (filesystem + web tools denied outright). No
+`[skills.meteora.autocompound]` block exists in the config — T2 is off by
+construction.
 
 **Voiceover / caption**: *"T2 is off by design. The agent never holds a key."*
 

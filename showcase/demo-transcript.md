@@ -33,7 +33,8 @@ solana create-nonce-account /tmp/nonce.json 0.0015 $(solana-keygen pubkey /tmp/l
 NONCE_PUBKEY=$(solana-keygen pubkey /tmp/nonce.json)
 echo "$NONCE_PUBKEY" | wrangler secret put NONCE_ACCOUNT
 wrangler deploy
-# → https://dlmm-lp-copilot.<subdomain>.workers.dev
+# → https://dlmm-lp-copilot.<your-cloudflare-subdomain>.workers.dev
+#   (the <subdomain> is operator-specific; capture it for the Discord post)
 ```
 
 ## Hour 0 — install ZeroClaw + skills + SOPs

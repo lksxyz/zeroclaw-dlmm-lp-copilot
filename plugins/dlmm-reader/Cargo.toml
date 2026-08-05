@@ -2,10 +2,16 @@
 name = "dlmm-reader"
 version = "0.1.0"
 edition = "2021"
-license = "MIT OR Apache-2.0"
+# License is MIT to match the repo's top-level LICENSE (the bounty requires
+# "MIT license" on plugin code). Apache-2.0 is dual here for safety but the
+# authoritative file is the repo root LICENSE = MIT.
+license = "MIT"
 description = "ZeroClaw WIT plugin: read Meteora DLMM positions and emit a shaped, ~200-token per-position summary."
 publish = false
 
+# Pinned against ZeroClaw runtime 0.8.4. See wit/world.wit for the full
+# pinning assumptions note; cargo build uses --locked so Cargo.lock is the
+# authoritative resolver and prevents drift across machines.
 [lib]
 crate-type = ["cdylib", "rlib"]
 

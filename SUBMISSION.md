@@ -1,6 +1,6 @@
 # DLMM LP Copilot — Superteam Brasil bounty submission
 
-> `#solana-bounty` showcase post. [Video](./showcase/video-script.md) · [Repo](./)
+> `#solana-bounty` showcase post. [Video](./showcase/video-script.md) · [Repo](https://github.com/lksxyz/zeroclaw-dlmm-lp-copilot)
 
 ## What it does
 
@@ -65,11 +65,13 @@ blockhash window. One nonce per concurrent pending tx.
 **Third-party trust:** Jupiter (read-only), Cloudflare (worker host), Helius/RPC
 (user-supplied). Declared.
 
-**Filesystem tools approval-gated.** `content_search`, `glob_search`,
+**Filesystem tools denied outright.** `content_search`, `glob_search`,
 `file_read`, `file_write`, `file_edit`, `data_management`, `memory_export`,
-`cron_list` require user approval on Telegram. Web/read-only tools
-(`web_fetch`, `browser`, `web_search_tool`) auto-approved — non-destructive.
-`memory_recall` remains (position baselines, no secrets).
+`cron_list`, and the web tools (`web_fetch`, `browser`, `web_search_tool`,
+`weather`) sit in `risk_profiles.dlmm.excluded_tools` — not "approval-gated",
+**denied**. Approval-gating alone is bypassable when a Telegram approval is
+rushed or missed; deny-by-default removes the question. `memory_recall`
+remains (position baselines, no secrets).
 
 ## What we did NOT do
 
@@ -84,23 +86,25 @@ blockhash window. One nonce per concurrent pending tx.
 - Self-hosted Action endpoint (no Dialect dependency)
 - Durable nonces (blockhash trap solved)
 - Jupiter feed (no Pyth/Switchboard dependency)
-- Filesystem tools approval-gated + 7-scenario injection suite
-- Triple-gated defense: LLM (skill rules) + Tool (approval-gated) + Cryptographic (on-chain auth)
+- Filesystem + web tools **denied outright** (not just approval-gated) + 7-scenario injection suite
+- Triple-gated defense: LLM (skill rules) + Tool (denied-by-default) + Cryptographic (on-chain auth)
 
 ## Reproduce
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/master/install.sh | bash
 zeroclaw quickstart
-git clone https://github.com/<you>/dlmm-lp-copilot
-cp dlmm-lp-copilot/skills/*.md ~/.zeroclaw/skills/
-cp -r dlmm-lp-copilot/sops/dlmm-* ~/.zeroclaw/sops/
-cp dlmm-lp-copilot/config.example.toml ~/.zeroclaw/config.toml
-# edit config, fill env vars
-cd dlmm-lp-copilot/action-endpoint && npm install
+git clone https://github.com/lksxyz/zeroclaw-dlmm-lp-copilot
+cd zeroclaw-dlmm-lp-copilot
+cp skills/*.md ~/.zeroclaw/skills/
+cp -r sops/dlmm-* ~/.zeroclaw/sops/
+cp config.example.toml ~/.zeroclaw/config.toml
+# edit ~/.zeroclaw/config.toml, fill env vars
+cd action-endpoint && npm install
 npx wrangler secret put RPC_URL
 npx wrangler secret put NONCE_ACCOUNT && npx wrangler secret put NONCE_AUTHORITY
 npx wrangler deploy
+cd ..
 zeroclaw service install && zeroclaw service start
 ```
 
@@ -122,7 +126,8 @@ zeroclaw service install && zeroclaw service start
 
 ## Links
 
-- Repo: https://github.com/<you>/dlmm-lp-copilot
-- Video: `showcase/video-script.md`
-- Discord: `#solana-bounty` in ZeroClaw Discord
+- Repo: <https://github.com/lksxyz/zeroclaw-dlmm-lp-copilot>
+- Showcase video script: `showcase/video-script.md` (video produced separately)
+- Demo runbook: `showcase/demo-transcript.md`
+- Discord: <https://discord.gg/zeroclaw> → `#solana-bounty`
 - Bounty: Superteam Earn — Build Solana-native plugins for ZeroClaw

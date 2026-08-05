@@ -1,75 +1,175 @@
 # DLMM LP Copilot — config.example.toml
-# Copy to ~/.zeroclaw/config.toml. Fill in ${ENV_VAR} placeholders.
-# All secrets encrypted at rest via config_read.
+#
+# Copy to ~/.zeroclaw/config.toml and fill in ${ENV_VAR} placeholders.
+# All secrets are encrypted at rest and read via `config_read`.
+#
+# This file mirrors the operator's runtime shape (ZeroClaw 0.8.4):
+# - `schema_version = 3` is required by the runtime; older shapes fail to load.
+# - The `dlmm` risk profile uses *excluded_tools* to hard-deny destructive tools
+#   rather than only approval-gating them. Approval-gating alone is bypassable if
+#   the operator forgets to inspect a request on Telegram.
+# - Cron triggers live in `[sops.triggers.*]` (config-side) AND in each
+#   `sops/dlmm-*/SOP.toml` (SOP-side). ZeroClaw 0.8.4 dedupes by SOP name,
+#   so the two definitions are equivalent and intentional: config-side wins
+#   for TZ, SOP-side wins for steps.
 
+schema_version = 3
+
+# ---------- providers ----------
 [providers.models.anthropic.copilot]
-model = "claude-sonnet-4-5"
-api_key = "${ANTHROPIC_API_KEY}"
+model    = "claude-sonnet-4-5"
+api_key  = "${ANTHROPIC_API_KEY}"
 
-[risk_profiles.dlmm-copilot]
-level = "supervised"
-auto_approve = [
+# ---------- agents ----------
+[agents.dlmm_copilot]
+channels        = ["telegram.dlmm_copilot"]
+risk_profile    = "dlmm"
+model_provider  = "anthropic.copilot"
+runtime_profile = "copilot"
+skill_bundles   = ["meteora"]
+
+# ---------- peer groups ----------
+# The Telegram chat the agent DM's. Use @userinfobot to find your chat id.
+[peer_groups.telegram_dlmm_copilot_default]
+channel        = "telegram.dlmm_copilot"
+external_peers = ["${TELEGRAM_CHAT_ID}"]
+
+# ---------- channels ----------
+[channels.telegram.dlmm_copilot]
+bot_token            = "${TELEGRAM_BOT_TOKEN}"
+enabled              = true
+poll_interval_seconds = 5
+sender_match         = "handle"
+
+# ---------- onboard state ----------
+[onboard_state]
+quickstart_completed = true
+
+# ---------- skill bundles ----------
+[skill_bundles.meteora]
+
+# ---------- risk profiles ----------
+# `dlmm` is the only profile the agent uses. It is the *deny-by-default* shape:
+# filesystem + web tools are excluded outright; only read-only/data-pipe tools
+# are auto-approved. This is stronger than approval-gating because a missed
+# approval on Telegram can't leak `.env`, `~/.ssh`, or run browser code.
+#
+# Mirrors the live operator config and survives a misconfigured quickstart.
+[risk_profiles.dlmm]
+level                            = "supervised"
+require_approval_for_medium_risk = false
+auto_approve                     = [
     "http_request",
     "send_message_to_peer",
     "read_skill",
     "memory_recall",
+]
+excluded_tools = [
+    "content_search",
+    "glob_search",
+    "file_read",
+    "file_write",
+    "file_edit",
+    "data_management",
+    "memory_export",
+    "cron_list",
     "web_fetch",
     "browser",
     "web_search_tool",
+    "weather",
 ]
 
-[channels.telegram.dlmm_copilot]
-bot_token = "${TELEGRAM_BOT_TOKEN}"
-chat_id   = "${TELEGRAM_CHAT_ID}"
-poll_interval_seconds = 5
-sender_match = "handle"
+[risk_profiles.dlmm.delegation_policy]
+mode = "allow"
 
-[agents.dlmm_copilot]
-provider  = "anthropic.copilot"
-risk_profile = "dlmm-copilot"
-skills_dir = "~/.zeroclaw/skills"
-sops_dir   = "~/.zeroclaw/sops"
-memory     = "sqlite:~/.zeroclaw/memory.db"
+# ---------- runtime profile ----------
+# Same shape as the operator's `unbounded` profile, but trimmed: lower caps so a
+# forked starter kit can't accidentally blow the context window or spend.
+[runtime_profiles.copilot]
+agentic                 = true
+agentic_timeout_secs    = 600
+compact_context         = true
+delegation_timeout_secs = 300
+keep_tool_context_turns = 6
+max_actions_per_hour    = 120
+max_context_tokens      = 64000
+max_cost_per_day_cents  = 500
+max_delegation_depth    = 3
+max_history_messages    = 100
+max_system_prompt_chars = 32000
+max_tool_iterations     = 50
+max_tool_result_chars   = 16000
+memory_recall_limit     = 10
+parallel_tools          = true
+shell_timeout_secs      = 120
+strict_tool_parsing     = true
 
+[runtime_profiles.copilot.context_compression]
+enabled                  = true
+identifier_policy        = "strict"
+max_passes               = 2
+protect_first_n          = 3
+protect_last_n           = 4
+source_max_chars         = 32000
+summary_max_chars        = 2000
+threshold_ratio          = 0.6
+timeout_secs             = 30
+tool_result_retrim_chars = 1500
+
+[runtime_profiles.copilot.thinking]
+default_level   = "medium"
+native_thinking = false
+
+# ---------- memory ----------
+[memory]
+backend     = "sqlite.sqlite"
+search_mode = "bm25"
+
+# ---------- skills ----------
 [skills.meteora]
-rpc_url                = "${SOLANA_RPC_URL}"
-rpc_url_backup         = "${SOLANA_RPC_URL_BACKUP}"
-meteora_api            = "https://dlmm-api.meteora.ag"
-dlmm_program           = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSK9q8Mfev5Rq"
-wallet_pubkey          = "${OPERATOR_WALLET_PUBKEY}"
-report_chat_id         = "${TELEGRAM_CHAT_ID}"
-action_endpoint_base   = "${ACTION_ENDPOINT_BASE}"
-nonce_account          = "${DURABLE_NONCE_ACCOUNT}"
-nonce_authority        = "${OPERATOR_WALLET_PUBKEY}"
+rpc_url              = "${SOLANA_RPC_URL}"
+rpc_url_backup       = "${SOLANA_RPC_URL_BACKUP}"
+meteora_api          = "https://dlmm-api.meteora.ag"
+dlmm_program         = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSK9q8Mfev5Rq"
+wallet_pubkey        = "${OPERATOR_WALLET_PUBKEY}"
+report_chat_id       = "${TELEGRAM_CHAT_ID}"
+action_endpoint_base = "${ACTION_ENDPOINT_BASE}"
+nonce_account        = "${DURABLE_NONCE_ACCOUNT}"
+nonce_authority      = "${OPERATOR_WALLET_PUBKEY}"
 
 [skills.meteora.prices]
 jupiter_price_api = "https://api.jup.ag/price/v2"
 feed_sol_id       = "So11111111111111111111111111111111111111112"
 usdc_usd          = 1.0
 
-[http_request]
-allowed_domains = ["mainnet.helius-rpc.com", "api.jup.ag", "dlmm-api.meteora.ag"]
-
-[http_request.secrets]
-# Only Bearer auth supported. Helius uses x-api-key → keep key in RPC URL query param.
-
 [skills.meteora.thresholds]
-out_of_range_alert    = true
-il_alert_pct          = 5.0
-fee_milestone_usd     = 1.0
-daily_report_hour     = 8
-daily_report_tz       = "America/Sao_Paulo"
-range_check_minutes   = 30
+out_of_range_alert  = true
+il_alert_pct        = 5.0
+fee_milestone_usd   = 1.0
+daily_report_hour   = 8
+daily_report_tz     = "America/Sao_Paulo"
+range_check_minutes = 30
 
+# ---------- sops ----------
+# Config-side cron definitions (ZeroClaw 0.8.4 reads these for TZ-aware triggers).
+# Each SOP under sops/dlmm-*/SOP.toml also carries its own [[triggers]] block —
+# the runtime dedupes by SOP name. Config-side wins on TZ, SOP-side wins on steps.
 [sops.triggers.dlmm-daily-report]
 kind = "cron"
 expr = "0 8 * * *"
-tz   = "Asia/Jakarta"
+tz   = "America/Sao_Paulo"
 
 [sops.triggers.dlmm-range-monitor]
 kind = "cron"
 expr = "*/30 * * * *"
+tz   = "America/Sao_Paulo"
 
-[memory]
-path = "sqlite:~/.zeroclaw/memory.db"
-schema = "v1"
+# ---------- http_request ----------
+# ZeroClaw http_request only supports the `Authorization: Bearer` header.
+# Helius needs `x-api-key`, so the key rides in the RPC URL query string —
+# not in this secrets block. The allowlist restricts outbound calls to the
+# three hosts the operator actually trusts.
+[http_request]
+allowed_domains = ["mainnet.helius-rpc.com", "api.jup.ag", "dlmm-api.meteora.ag"]
+
+[http_request.secrets]

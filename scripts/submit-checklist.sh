@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Pre-submit checklist. Prints a copy-pasteable list to fill in before posting
-# the showcase to #solana-bounty in the ZeroClaw Discord.
+# the showcase to #solana-bounty in the ZeroClaw Discord (https://discord.gg/zeroclaw).
 
 cat <<'EOF'
 DLMM LP Copilot — pre-submit checklist
@@ -8,7 +8,7 @@ DLMM LP Copilot — pre-submit checklist
 
 Repo
 ----
-[ ] Repo public at https://github.com/<you>/dlmm-lp-copilot
+[ ] Repo public at https://github.com/lksxyz/zeroclaw-dlmm-lp-copilot
 [ ] `make validate` passes locally
 [ ] No secrets in git history (rotate any key that ever touched a commit)
 [ ] LICENSE present (MIT)
@@ -28,6 +28,7 @@ Devnet demo
 [ ] Two DLMM positions open (one stable, one volatile)
 [ ] Position pubkeys captured in showcase/demo-transcript.md
 [ ] Worker URL captured and stable
+[ ] Fail-closed auto-compound refusal recorded (compare to prompts/injection-tests.md Scenario 3)
 
 Showcase artifacts
 ------------------
@@ -38,12 +39,12 @@ Showcase artifacts
 [ ] Prompt-injection transcript in the post OR linked from it
 [ ] Custody tier table included verbatim from SUBMISSION.md
 
-Discord post (#solana-bounty in ZeroClaw)
------------------------------------------
+Discord post (#solana-bounty in ZeroClaw — https://discord.gg/zeroclaw)
+----------------------------------------------------------------------
 [ ] Title: "DLMM LP Copilot — T0/T1 DLMM guardian on Telegram"
 [ ] Body: link to video + link to repo + 5-line summary + custody tier line
 [ ] Reply to any maintainer questions within 24h
-[ ] Build-in-public log on X (Tiebreak points — bounty explicit)
+[ ] Build-in-public log on X (Tiebreak points — bounty explicit — see BUILD_LOG.md)
 
 Things we did NOT do (and won't)
 ---------------------------------

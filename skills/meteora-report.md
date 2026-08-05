@@ -27,7 +27,7 @@ Telegram supports: `*bold*`, `_italic_`, `` `code` ``, `\n`, emoji, `·`, `═`,
 ### With positions
 
 ```
-🦞 DLMM Daily — <YYYY-MM-DD> <HH:MM> WIB
+🦞 DLMM Daily — <YYYY-MM-DD> <HH:MM> <TZ>
 ═══════════════════════════════════════
 *n* positions · TVL `$<sum>` · 24h fees `$<sum>` · claimable `$<sum>`
 
@@ -51,7 +51,7 @@ Telegram supports: `*bold*`, `_italic_`, `` `code` ``, `\n`, emoji, `·`, `═`,
 ### Empty state
 
 ```
-🦞 DLMM Daily — <YYYY-MM-DD> <HH:MM> WIB
+🦞 DLMM Daily — <YYYY-MM-DD> <HH:MM> <TZ>
 ═══════════════════════════════════════
 No DLMM positions for this wallet.
 

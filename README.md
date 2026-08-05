@@ -7,7 +7,7 @@ Self-hosted ZeroClaw agent watching [Meteora DLMM](https://app.meteora.ag/) posi
 
 ## Features
 
-- **Daily 08:00 WIB** — position report (value, fees, IL vs HODL)
+- **Daily 08:00 (operator TZ, Brazil default `America/Sao_Paulo`)** — position report (value, fees, IL vs HODL)
 - **Every 30 min** — out-of-range alert
 - **DM `report`** — on-demand position report
 - **DM `claim #<id>`** → Solana Action URL → sign in Phantom
@@ -26,8 +26,11 @@ sops/             # Cron definitions
   dlmm-daily-report/     08:00 report
   dlmm-range-monitor/    */30 OOR check
 action-endpoint/  # Cloudflare Worker (Solana Actions server)
+plugins/          # WASM plugin (Tier 3 — optional, shapes ~200 tokens/position)
 config.example.toml
 prompts/injection-tests.md
+showcase/         # Video script, demo runbook, Discord post body
+BUILD_LOG.md      # Build-in-public milestones (X tiebreak source)
 ```
 
 ## Quick start
@@ -74,9 +77,11 @@ WASM plugin (Tier 3 bonus, optional): `make plugin-build && make plugin`.
 
 **Channel = prompt-injection surface.** Agent only *proposes* — user wallet signs.
 Filesystem tools (`content_search`, `glob_search`, `file_read`, `file_write`,
-`file_edit`, `data_management`, `memory_export`, `cron_list`) are approval-gated
-on Telegram. Web/read-only tools auto-approved. `memory_recall` reads position
-baselines (no secrets). See `prompts/injection-tests.md` (7 scenarios).
+`file_edit`, `data_management`, `memory_export`, `cron_list`) and the web tools
+(`web_fetch`, `browser`, `web_search_tool`, `weather`) sit in
+`risk_profiles.dlmm.excluded_tools` — **denied outright**, not just
+approval-gated. `memory_recall` reads position baselines (no secrets). See
+`prompts/injection-tests.md` (7 scenarios).
 
 **RPC key in URL query param.** ZeroClaw's `http_request` only supports
 `Authorization` header — Helius needs `x-api-key`. Key stays on disk.

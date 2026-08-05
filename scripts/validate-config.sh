@@ -29,6 +29,30 @@ required_sections = [
     "memory",
 ]
 
+# ZeroClaw 0.8.4 requires schema_version. Refuse older shapes so an operator
+# copying an old gist fails fast instead of at daemon startup.
+if "schema_version" not in cfg:
+    print("✗ schema_version missing (required by ZeroClaw 0.8.4)")
+    sys.exit(1)
+if cfg["schema_version"] < 3:
+    print(f"✗ schema_version={cfg['schema_version']} is below the 0.8.4 minimum (3)")
+    sys.exit(1)
+print(f"✓ schema_version={cfg['schema_version']}")
+
+# The `dlmm` risk profile must use excluded_tools (deny-by-default), not just
+# auto_approve — the bounty scoring penalises "approval-gated" alone because
+# Telegram approvals are missable.
+risk = cfg.get("risk_profiles", {}).get("dlmm", {})
+if not risk.get("excluded_tools"):
+    print("✗ risk_profiles.dlmm has no excluded_tools — deny-by-default is required")
+    sys.exit(1)
+forbidden_required = ["content_search", "file_read", "web_fetch"]
+missing = [t for t in forbidden_required if t not in risk["excluded_tools"]]
+if missing:
+    print(f"✗ risk_profiles.dlmm.excluded_tools missing: {', '.join(missing)}")
+    sys.exit(1)
+print(f"✓ risk_profiles.dlmm denies {len(risk['excluded_tools'])} tools")
+
 def has(d, dotted):
     cur = d
     for part in dotted.split("."):
