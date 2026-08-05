@@ -15,8 +15,22 @@ api_key = "${ANTHROPIC_API_KEY}"          # env var; never inline
 # cron runs fail-closed: no approver channel exists to tap "approve".
 [risk_profiles.dlmm-copilot]
 level = "supervised"                   # acts, but requires approval for risky ops
-auto_approve = ["http_request", "send_message_to_peer"]
+auto_approve = ["http_request", "send_message_to_peer", "read_skill"]
 # Every other tool (file edits, shell, delegation) still gates normally.
+excluded_tools = [
+    "memory_recall",
+    "content_search",
+    "glob_search",
+    "file_read",
+    "file_write",
+    "file_edit",
+    "data_management",
+]
+# excluded_tools is a hard block — these tools are removed from the agent's
+# tool list on non-CLI channels (Telegram). This prevents the agent from
+# hunting for .env files, config secrets, or credential material in the
+# workspace. read_skill is the ONLY way to read skill files; http_request
+# is the ONLY way to touch the network.
 
 # ----- Telegram channel -------------------------------------------------
 [channels.telegram.dlmm_copilot]
