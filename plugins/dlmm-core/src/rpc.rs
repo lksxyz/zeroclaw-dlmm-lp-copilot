@@ -46,6 +46,14 @@ impl RpcClient {
         crate::nonce::decode_nonce_hash(&data).map_err(|e| format!("bad nonce data: {e}"))
     }
 
+    /// Latest blockhash as raw 32 bytes — used as `recentBlockhash` when no
+    /// durable nonce is configured. Blockhashes expire after ~90 s, so the
+    /// user must sign promptly; the doc-comment on `build_action` describes
+    /// why a durable nonce is still the recommended path.
+    pub fn get_latest_blockhash_bytes(&self) -> Result<[u8; 32], String> {
+        rpc_get_latest_blockhash(&self.url)
+    }
+
     /// Token-mint decimals (SPL layout: u8 at offset 44). Needed to convert
     /// raw claimable amounts to human units.
     pub fn get_mint_decimals(&self, mint: &Pubkey) -> Result<u8, String> {
@@ -188,6 +196,57 @@ fn rpc_get_program_accounts(
     _memcmp_offset: usize,
     _memcmp_bytes: &[u8],
 ) -> Result<Vec<(Pubkey, Vec<u8>)>, String> {
+    Err("rpc: host stub — wasm-only".to_string())
+}
+
+/// Parse a `getLatestBlockhash` JSON response into a 32-byte blockhash.
+///
+/// Solana RPC returns the blockhash as a base58 string (e.g.
+/// `"9CmjKoWGqndHBRmRFL6jcc6cZs9cQttNkpTY4Y8d5vJ3"`) — **not** base64.
+/// Decoding a base58 alphabet string as base64 yields 33 bytes and trips the
+/// length check; that was the source of the
+/// `"blockhash not 32 bytes: 33"` failure on the no-nonce demo path.
+pub fn decode_blockhash_from_response(v: &serde_json::Value) -> Result<[u8; 32], String> {
+    let b58_str = v["result"]["value"]["blockhash"]
+        .as_str()
+        .ok_or_else(|| "no blockhash in response".to_string())?;
+    let bytes = bs58::decode(b58_str)
+        .into_vec()
+        .map_err(|e| format!("blockhash base58: {e}"))?;
+    if bytes.len() != 32 {
+        return Err(format!("blockhash not 32 bytes: {}", bytes.len()));
+    }
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&bytes);
+    Ok(out)
+}
+
+#[cfg(target_family = "wasm")]
+fn rpc_get_latest_blockhash(url: &str) -> Result<[u8; 32], String> {
+    let body = serde_json::json!({
+        "jsonrpc": "2.0", "id": 1,
+        "method": "getLatestBlockhash",
+        "params": [{ "commitment": "confirmed" }]
+    })
+    .to_string();
+    let resp = waki::Client::new()
+        .post(url)
+        .header("content-type", "application/json")
+        .body(body.as_bytes().to_vec())
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .send()
+        .map_err(|e| format!("rpc error: {e}"))?;
+    if resp.status_code() != 200 {
+        return Err(format!("rpc status {}", resp.status_code()));
+    }
+    let body = resp.body().map_err(|e| format!("rpc body error: {e}"))?;
+    let v: serde_json::Value =
+        serde_json::from_slice(&body).map_err(|e| format!("rpc json error: {e}"))?;
+    decode_blockhash_from_response(&v)
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn rpc_get_latest_blockhash(_url: &str) -> Result<[u8; 32], String> {
     Err("rpc: host stub — wasm-only".to_string())
 }
 

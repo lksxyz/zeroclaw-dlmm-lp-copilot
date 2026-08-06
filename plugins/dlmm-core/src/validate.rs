@@ -4,7 +4,9 @@
 
 use solana_pubkey::Pubkey;
 
-use crate::decoder::{claimable_fees, fee_recipient, PositionV2};
+use crate::decoder::{
+    claimable_fees_with_bins, fee_recipient, BinArray, PositionV2,
+};
 
 pub const MAX_ACTIVE_BIN_SLIPPAGE: i32 = 3;
 pub const BPS_FULL: u16 = 10_000;
@@ -88,13 +90,18 @@ pub fn validate_active_bin_slippage(observed: i32, embedded: i32) -> Result<(), 
 }
 
 /// Fail-closed claim guard: refuse to build a claim tx when nothing is
-/// claimable. Fees are the position's own pending fee amounts; rewards are
-/// the pending reward amounts in the two reward slots.
-pub fn validate_claimable(position: &PositionV2) -> Result<(), ValidationError> {
+/// claimable. Uses the per-bin per-token math (`claimable_fees_with_bins`),
+/// which is the only accurate measure — a raw `fee_x_pending` sum undercounts
+/// fees accrued since the last claim. Rewards are the pending amounts in the
+/// two reward slots.
+pub fn validate_claimable(
+    position: &PositionV2,
+    bin_arrays: &[BinArray],
+) -> Result<(), ValidationError> {
     if crate::decoder::total_liquidity_shares(position) == 0 {
         return Err(ValidationError::EmptyPosition);
     }
-    let (fee_x, fee_y) = claimable_fees(position);
+    let (fee_x, fee_y) = claimable_fees_with_bins(position, bin_arrays);
     let reward_pending = position.reward_infos.iter().fold(0u64, |acc, r| {
         acc.saturating_add(r.reward_pendings[0] + r.reward_pendings[1])
     });

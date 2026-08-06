@@ -23,7 +23,7 @@
 
 const SYSTEM_PROGRAM = '11111111111111111111111111111111';
 const DLMM_DEVNET = 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo';
-const DLMM_MAINNET = 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSK9q8Mfev5Rq';
+const DLMM_MAINNET = 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo';
 
 const cors = (extra: Record<string, string> = {}) => ({
   'Access-Control-Allow-Origin': '*',

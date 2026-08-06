@@ -14,8 +14,9 @@
 
 use base64::Engine;
 use dlmm_core::decoder::{
-    claimable_fees, decode_bin_array, decode_lb_pair, decode_position, fee_recipient,
-    position_amounts, total_liquidity_shares, BIN_ARRAY_LEN, LB_PAIR_LEN, POSITION_V2_LEN,
+    claimable_fees, claimable_fees_with_bins, decode_bin_array, decode_lb_pair, decode_position,
+    fee_recipient, position_amounts, total_liquidity_shares, BIN_ARRAY_LEN, LB_PAIR_LEN,
+    POSITION_V2_LEN,
 };
 use dlmm_core::nonce::{decode_nonce_hash, is_settled, nonce_hash_base58};
 use dlmm_core::pda;
@@ -160,6 +161,38 @@ fn position_amounts_is_zero_without_bin_arrays() {
     let f = fixtures();
     let pos = decode_position(&b64(&f["position_v2"])).expect("decode position");
     assert_eq!(position_amounts(&pos, &[]), (0, 0));
+}
+
+// The per-bin per-token claimable math: the position's raw `fee_x_pending`
+// undercounts fees accrued since the last claim. This pins the correct
+// formula:
+//   new_fee = (share >> SCALE_OFFSET) * (bin_fee_stored - fee_complete)
+//            >> SCALE_OFFSET
+//   claimable = new_fee + fee_pending
+#[test]
+fn claimable_fees_uses_per_bin_per_token_math() {
+    let f = fixtures();
+    let pos = decode_position(&b64(&f["position_v2"])).expect("decode position");
+    let mut ba = decode_bin_array(&b64(&f["bin_array_aligned"])).expect("decode aligned bin array");
+
+    // Position bin 8450 = inner offset 50 in array 120 (covers 8400..8469).
+    // Position liquidity_shares[0] → that bin; the position's fee_infos[0].
+    let bin_idx = 50usize;
+    let share = pos.liquidity_shares[0];
+    let fee_pending_x = pos.fee_infos[0].fee_x_pending;
+    assert!(share > 0, "fixture position must hold liquidity at bin 8450");
+    assert!(fee_pending_x > 0, "fixture position must have pending fees");
+
+    // Give the bin a per-token stored fee above the position's last-claimed
+    // value, so the per-token delta term is non-zero.
+    let delta_per_token: u128 = 1 << 10; // in Q64.64 units
+    ba.bins[bin_idx].fee_amount_x_per_token_stored =
+        pos.fee_infos[0].fee_x_per_token_complete + delta_per_token;
+
+    let (x, _y) = claimable_fees_with_bins(&pos, &[ba]);
+    // expected = ((share >> 64) * delta_per_token) >> 64 + fee_pending_x
+    let expected = (((share >> 64) as u128 * delta_per_token) >> 64) as u64 + fee_pending_x;
+    assert_eq!(x, expected, "per-token delta term must be added to pending");
 }
 
 #[test]
@@ -381,6 +414,8 @@ fn validation_rules_fail_closed() {
     let pos = decode_position(&b64(&f["position_v2"])).unwrap();
     let owner = pk(&f["keys"]["owner"]);
     let stranger = Pubkey::new_unique();
+    // Aligned bin array covers position bins 8450..8469 (array index 120).
+    let bin_arr = decode_bin_array(&b64(&f["bin_array_aligned"])).unwrap();
 
     // ownership
     assert!(validate_owned(&pos, &owner).is_ok());
@@ -409,7 +444,7 @@ fn validation_rules_fail_closed() {
     );
 
     // claimable — the fixture has fees, so it passes
-    assert!(validate_claimable(&pos).is_ok());
+    assert!(validate_claimable(&pos, &[bin_arr.clone()]).is_ok());
 
     // bin-array range
     assert!(validate_bin_array_range(8450, 8520).is_ok());
@@ -436,9 +471,10 @@ fn empty_position_fails_claimable_check() {
         *b = 0;
     }
     let pos = decode_position(&bytes).unwrap();
+    let bin_arr = decode_bin_array(&b64(&f["bin_array_aligned"])).unwrap();
     assert_eq!(total_liquidity_shares(&pos), 0);
     assert_eq!(
-        validate_claimable(&pos),
+        validate_claimable(&pos, &[bin_arr]),
         Err(ValidationError::EmptyPosition)
     );
 }
@@ -446,4 +482,67 @@ fn empty_position_fails_claimable_check() {
 #[test]
 fn maximum_slippage_constant_is_three() {
     assert_eq!(MAX_ACTIVE_BIN_SLIPPAGE, 3);
+}
+
+// ---------------------------------------------------------------------------
+// `getLatestBlockhash` response decoding
+// ---------------------------------------------------------------------------
+//
+// Regression: the no-nonce demo path used to trip `"blockhash not 32 bytes: 33"`
+// because the code was decoding the base58 blockhash string as base64. The
+// pinned value below is a real mainnet blockhash; it must round-trip to the
+// same 32 bytes whether you decode it as base58 (correct) or base64 (the
+// historical bug — note the lengths differ).
+#[test]
+fn get_latest_blockhash_response_decodes_as_base58() {
+    use dlmm_core::rpc::decode_blockhash_from_response;
+
+    // Real `getLatestBlockhash` response shape from mainnet-beta.
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "context": { "slot": 348_000_000 },
+            "value": {
+                "blockhash": "9CmjKoWGqndHBRmRFL6jcc6cZs9cQttNkpTY4Y8d5vJ3",
+                "lastValidBlockHeight": 348_000_016
+            }
+        }
+    });
+
+    let bytes = decode_blockhash_from_response(&body).expect("decode");
+    assert_eq!(bytes.len(), 32);
+
+    // Round-trip via base58 to lock the encoding: re-encoding the bytes must
+    // produce the original string.
+    assert_eq!(
+        bs58::encode(bytes).into_string(),
+        "9CmjKoWGqndHBRmRFL6jcc6cZs9cQttNkpTY4Y8d5vJ3"
+    );
+
+    // Sanity: the old base64 path produced 33 bytes — assert it here so the
+    // mismatch is visible in the test output if anyone reintroduces the bug.
+    let base64_len = base64::engine::general_purpose::STANDARD
+        .decode("9CmjKoWGqndHBRmRFL6jcc6cZs9cQttNkpTY4Y8d5vJ3")
+        .unwrap()
+        .len();
+    assert_eq!(base64_len, 33, "base58-as-base64 must NOT yield 32 bytes");
+    assert_ne!(base64_len, bytes.len());
+}
+
+#[test]
+fn get_latest_blockhash_response_rejects_malformed() {
+    use dlmm_core::rpc::decode_blockhash_from_response;
+
+    // Missing the value field.
+    let v = serde_json::json!({ "jsonrpc": "2.0", "id": 1, "result": {} });
+    assert!(decode_blockhash_from_response(&v).is_err());
+
+    // Blockhash of the wrong length (31 bytes) — must error explicitly.
+    let short = bs58::encode([0u8; 31]).into_string();
+    let v = serde_json::json!({ "result": { "value": { "blockhash": short } } });
+    match decode_blockhash_from_response(&v) {
+        Err(msg) => assert!(msg.contains("not 32 bytes"), "got: {msg}"),
+        Ok(_) => panic!("31-byte blockhash must be rejected"),
+    }
 }

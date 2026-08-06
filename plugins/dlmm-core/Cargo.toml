@@ -31,5 +31,6 @@ opt-level = "s"
 lto = true
 strip = true
 codegen-units = 1
+panic = "unwind"
 
 [workspace]

@@ -50,9 +50,15 @@ Telegram supports: `*bold*`, `_italic_`, `` `code` ``, `\n`, emoji, `·`, `═`,
 ```
 🦞 DLMM Daily — <YYYY-MM-DD> <HH:MM> <TZ>
 ═══════════════════════════════════════
-No DLMM positions for this wallet.
+No DLMM positions on this wallet.
 
-↳ open a position at https://app.meteora.ag/dlmm
+I only watch one wallet (locked by plugin config).
+To get started:
+  1. Open https://app.meteora.ag/dlmm?cluster=devnet
+  2. Pick a pool, deposit X + Y → position NFT lands in your wallet
+  3. DM `report` again — I'll pick it up
+
+↳ match Phantom's network to the bot's RPC.
 ```
 
 ## Icons

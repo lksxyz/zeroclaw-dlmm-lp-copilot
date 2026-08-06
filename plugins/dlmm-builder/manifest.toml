@@ -1,6 +1,6 @@
 name = "dlmm-builder"
 version = "0.1.0"
-description = "Build unsigned Meteora DLMM claim/rebalance transactions in-wasm: durable-nonce recentBlockhash, mechanical validation (ownership, claimable, range contains active bin), emits a solana-action: URL."
+description = "Build unsigned Meteora DLMM claim/rebalance transactions in-wasm: durable-nonce recentBlockhash, mechanical validation (ownership, claimable, range contains active bin), returns the raw unsigned tx as base64."
 author = "DLMM LP Copilot contributors"
 wasm_path = "dlmm_builder.wasm"
 capabilities = ["tool"]

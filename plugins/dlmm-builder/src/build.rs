@@ -1,4 +1,4 @@
-//! Pure action builder — host-testable, no RPC.
+//! Pure unsigned-tx builder — host-testable, no RPC.
 //!
 //! Given decoded accounts + the host-injected config, this module:
 //!
@@ -9,8 +9,7 @@
 //!      [AdvanceNonceAccount, remove_liquidity_by_range2,
 //!      add_liquidity_by_strategy2])
 //!   3. encodes the unsigned transaction (web3.js wire format) with the
-//!      durable-nonce hash as `recentBlockhash`
-//!   4. emits a `solana-action:` URL for the stateless relay
+//!      durable-nonce hash as `recentBlockhash`, and returns it as base64
 //!
 //! The wasm shim (lib.rs) does the RPC fetching and hands decoded values to
 //! `build_action`; `cargo test` exercises it with fixture bytes and asserts
@@ -42,11 +41,20 @@ pub struct PluginConfig {
     /// The operator's own wallet — the ONLY signer the built tx may have.
     /// The builder refuses to run without it (fail-closed ownership gate).
     pub owner_pubkey: Option<String>,
-    /// Base URL of the stateless relay (solana-action endpoint).
-    #[serde(default)]
-    pub base_url: Option<String>,
     #[serde(default)]
     pub dlmm_program: Option<String>,
+    /// Durable nonce account used as the `recentBlockhash` source for every
+    /// agent-proposed tx. Host-injected under `__config` (anti-spoof: the
+    /// LLM cannot redirect this to an attacker-controlled account via DM —
+    /// the runtime strips caller-supplied `__config` and the builder uses
+    /// this value over any `args.nonce_address` the LLM might pass).
+    ///
+    /// Bounty alignment: keeps the nonce on the same trust path as `rpc_url`
+    /// and `owner_pubkey` — all host-controlled, none of them DM-mediated.
+    /// The LLM is no longer asked for the nonce, so a prompt injection
+    /// ("paste your nonce here") can't substitute the attacker's.
+    #[serde(default)]
+    pub nonce_address: Option<String>,
 }
 
 /// Tool arguments (mode `claim` or `rebalance`).
@@ -82,15 +90,47 @@ pub struct ActionInput<'a> {
     /// token amounts a rebalance re-deposits (v2 positions store shares, not
     /// totals). Missing arrays are skipped (empty bins).
     pub bin_arrays: &'a [BinArray],
-    /// Stored durable-nonce hash (32 bytes) — the tx's recentBlockhash.
+    /// Stored durable-nonce hash OR latest blockhash (32 bytes) — the tx's
+    /// `recentBlockhash`. When `use_nonce=true` this is the nonce's stored
+    /// hash; otherwise it is the latest blockhash (expires after ~90 s).
     pub nonce_hash: [u8; 32],
     pub owner: &'a Pubkey,
+    /// Durable nonce account pubkey. Required only when `use_nonce=true`
+    /// (the AdvanceNonceAccount instruction references it). When `use_nonce
+    /// =false` this is a placeholder and the tx is a plain 1- or 2-ix tx.
     pub nonce: &'a Pubkey,
     pub program: &'a Pubkey,
-    pub base_url: &'a str,
     pub new_low: Option<i32>,
     pub new_high: Option<i32>,
     pub label: Option<String>,
+    /// When true, the tx starts with `AdvanceNonceAccount` (durable nonce).
+    /// When false, the tx is a plain claim/rebalance with only the latest
+    /// blockhash as `recentBlockhash` — blockhash expires after ~90 s so the
+    /// user must sign promptly. This is the demo path; production keeps
+    /// `use_nonce=true` for approval-delay safety.
+    pub use_nonce: bool,
+}
+
+/// Resolve which nonce to use for `recentBlockhash`.
+///
+/// Precedence: host-injected `__config.nonce_address` (anti-spoof) wins over
+/// any `args.nonce_address` the LLM passes. Both empty → the caller falls
+/// back to the latest blockhash (demo path; the wasm entry decides which
+/// branch to take). Returns the resolved pubkey-or-None so this logic is
+/// host-testable without an RPC.
+///
+/// Bounty alignment: the LLM is *never* the source of the nonce. The
+/// runtime strips caller-supplied `__config` and the builder uses the host
+/// value. Prompt-injection scenarios (e.g. scenario 6, replayed URL) can't
+/// substitute the operator's nonce for an attacker-controlled one.
+pub fn resolve_nonce(
+    config_nonce: Option<&str>,
+    args_nonce: Option<&str>,
+) -> Option<String> {
+    config_nonce
+        .filter(|s| !s.is_empty())
+        .or_else(|| args_nonce.filter(|s| !s.is_empty()))
+        .map(|s| s.to_string())
 }
 
 /// Build + validate + encode, return the shaped output (action URL, tx base64,
@@ -117,7 +157,8 @@ pub fn build_action(input: &ActionInput) -> Result<serde_json::Value, String> {
 
     let (ixs, summary) = match input.mode {
         "claim" => {
-            validate_claimable(input.position).map_err(|e| format!("claim: {e}"))?;
+            validate_claimable(input.position, input.bin_arrays)
+                .map_err(|e| format!("claim: {e}"))?;
             validate_bin_array_range(input.position.lower_bin_id, input.position.upper_bin_id)
                 .map_err(|e| format!("claim: {e}"))?;
             let ixs = build_claim_instructions(
@@ -131,6 +172,7 @@ pub fn build_action(input: &ActionInput) -> Result<serde_json::Value, String> {
                 input.position.upper_bin_id,
                 *input.program,
             );
+            let ixs = if input.use_nonce { ixs } else { ixs.into_iter().skip(1).collect() };
             (
                 ixs,
                 json!({ "kind": "claim", "range": [input.position.lower_bin_id, input.position.upper_bin_id] }),
@@ -182,6 +224,7 @@ pub fn build_action(input: &ActionInput) -> Result<serde_json::Value, String> {
                 [0u8; 64],
                 *input.program,
             );
+            let ixs = if input.use_nonce { ixs } else { ixs.into_iter().skip(1).collect() };
             (
                 ixs,
                 json!({
@@ -197,15 +240,7 @@ pub fn build_action(input: &ActionInput) -> Result<serde_json::Value, String> {
 
     // 2. Encode with the durable-nonce hash as recentBlockhash.
     let tx_bytes = encode_unsigned_tx(&ixs, &input.nonce_hash, input.owner);
-
-    // 3. solana-action: URL → the stateless relay decodes the tx from the path.
     let b64 = base64::engine::general_purpose::STANDARD.encode(&tx_bytes);
-    let b64url = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&tx_bytes);
-    let action_url = format!(
-        "solana-action:{}/tx/{}",
-        input.base_url.trim_end_matches('/'),
-        b64url
-    );
 
     let label = input.label.clone().unwrap_or_else(|| match input.mode {
         "claim" => "Claim DLMM fees".to_string(),
@@ -213,7 +248,6 @@ pub fn build_action(input: &ActionInput) -> Result<serde_json::Value, String> {
     });
 
     Ok(json!({
-        "action_url": action_url,
         "tx_base64": b64,
         "position_id": input.position_id,
         "instructions": ixs.len(),
@@ -302,9 +336,9 @@ mod tests {
                 owner: &self.owner,
                 nonce: &self.nonce,
                 program: &self.program,
-                base_url: "https://relay.example.com",
                 new_low,
                 new_high,
+                use_nonce: true,
                 label: None,
             }
         }
@@ -315,8 +349,10 @@ mod tests {
         let env = Env::new();
         let position = decode_position(&b64(&env.f["position_v2"])).unwrap();
         let lb_pair = decode_lb_pair(&b64(&env.f["lb_pair"])).unwrap();
+        // Claim path needs the bin arrays for claimable validation.
+        let ba = decode_bin_array(&b64(&env.f["bin_array_aligned"])).unwrap();
 
-        let out = build_action(&env.input("claim", &position, &lb_pair, &[], None, None)).unwrap();
+        let out = build_action(&env.input("claim", &position, &lb_pair, &[ba], None, None)).unwrap();
         // Byte-for-byte equality with the web3.js-serialized fixture tx.
         assert_eq!(
             base64::engine::general_purpose::STANDARD
@@ -325,11 +361,7 @@ mod tests {
             b58_bytes(&env.f["tx_claim_b58"])
         );
         assert_eq!(out["instructions"], 2);
-        let url = out["action_url"].as_str().unwrap();
-        assert!(
-            url.starts_with("solana-action:https://relay.example.com/tx/"),
-            "{url}"
-        );
+        assert!(out.get("action_url").is_none(), "action_url must not be emitted");
     }
 
     #[test]
@@ -433,5 +465,43 @@ mod tests {
 
     fn b58_bytes(v: &serde_json::Value) -> Vec<u8> {
         bs58::decode(v.as_str().unwrap()).into_vec().unwrap()
+    }
+
+    // -----------------------------------------------------------------------
+    // `resolve_nonce` — config-driven precedence
+    // -----------------------------------------------------------------------
+    //
+    // The host-injected `__config.nonce_address` wins over any
+    // `args.nonce_address` the LLM passes. Both empty → None (caller falls
+    // back to the latest blockhash; the demo path). The LLM can never
+    // substitute the operator's nonce for an attacker-controlled pubkey
+    // (bounty threat model, `prompts/injection-tests.md` scenario 6).
+    #[test]
+    fn resolve_nonce_prefers_config_over_args() {
+        let resolved = resolve_nonce(
+            Some("CfgNOnceXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"),
+            Some("ArgsNOnceXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"),
+        );
+        assert_eq!(
+            resolved.as_deref(),
+            Some("CfgNOnceXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"),
+        );
+    }
+
+    #[test]
+    fn resolve_nonce_falls_back_to_args_when_config_empty() {
+        let resolved = resolve_nonce(None, Some("ArgsNOnceXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"));
+        assert_eq!(
+            resolved.as_deref(),
+            Some("ArgsNOnceXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"),
+        );
+    }
+
+    #[test]
+    fn resolve_nonce_treats_empty_config_and_empty_args_as_none() {
+        assert_eq!(resolve_nonce(None, None), None);
+        assert_eq!(resolve_nonce(Some(""), None), None);
+        assert_eq!(resolve_nonce(None, Some("")), None);
+        assert_eq!(resolve_nonce(Some(""), Some("")), None);
     }
 }

@@ -6,7 +6,7 @@
 //! tools/gen-fixtures.cjs from the official SDK).
 
 use base64::Engine;
-use dlmm_core::decoder::{decode_lb_pair, decode_position};
+use dlmm_core::decoder::{decode_bin_array, decode_lb_pair, decode_position};
 use dlmm_reader::shape::{shape_report, shape_status, Args};
 
 fn fixture() -> serde_json::Value {
@@ -55,6 +55,7 @@ fn report_end_to_end_from_fixture() {
     let pos = decode_position(&b64(&f["position_v2"])).expect("decode position");
     let lb = decode_lb_pair(&b64(&f["lb_pair"])).expect("decode lb_pair");
 
+    let bin_arr = decode_bin_array(&b64(&f["bin_array_aligned"])).expect("decode bin array");
     let r = shape_report(
         "7fTxDfcWTMVJg2r26Jv496HsuEBi6Hc77QEsHE9NSVZ1",
         &pos,
@@ -64,6 +65,7 @@ fn report_end_to_end_from_fixture() {
         Some(1.0),
         9,
         6,
+        &[bin_arr],
     );
 
     // range from position, active from lb_pair, in-range (8500 ∈ [8450, 8520])

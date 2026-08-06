@@ -1,15 +1,17 @@
 ---
 name: meteora-claim
-version: 4
+version: 5
 custody: T1
-summary: Build unsigned claim tx in-wasm (dlmm_builder), return solana-action URL
+summary: Build unsigned claim tx in-wasm (dlmm_builder), present the raw unsigned tx (base64) for the operator to sign in any wallet
 ---
 
 # meteora-claim
 
 Build the unsigned claim tx with the `dlmm_builder` plugin (in-wasm: fetch +
-decode + mechanical validation + wire encoding). Return the `solana-action:`
-URL. User signs. Agent never holds keys.
+decode + mechanical validation + wire encoding). Present the **raw unsigned
+transaction (base64)** — the operator signs it in their own wallet
+(Phantom, Solflare, CLI, etc.). The agent never signs, never submits, never
+holds keys.
 
 Tools: `dlmm_builder`, `dlmm_reader`, `send_message_to_peer`, `read_skill`,
 `memory_recall`. `http_request` is DENIED.
@@ -29,26 +31,36 @@ claimable > 0 (the plugin rejects zero claims anyway).
 ### 2. Build tx
 
 ```
-dlmm_builder {"mode":"claim","position_id":"<id>","nonce_address":"${NONCE_ACCOUNT}"}
+dlmm_builder {"mode":"claim","position_id":"<id>"}
 ```
 
-Plugin validates mechanically (owner == `__config.owner_pubkey`, claimable > 0,
-bin-array range) and returns:
+The nonce address comes from `__config.nonce_address` (host-injected,
+anti-spoof) — do NOT ask the operator for it and do NOT pass it as an arg.
+The plugin validates mechanically (owner == `__config.owner_pubkey`,
+claimable > 0, bin-array range) and returns:
 
 ```
-{"action_url":"solana-action:...","tx_base64":"...","instructions":2,
- "recent_blockhash":"<nonce hash>","label":"Claim DLMM fees"}
+{"tx_base64":"...","instructions":2,
+ "recent_blockhash":"<nonce hash>","label":"Claim DLMM fees",
+ "summary":{"kind":"claim","range":[...]}}
 ```
 
-### 3. Reply with the action URL
+### 3. Reply with the unsigned tx
+
+Reply with the raw `tx_base64` from the plugin output. The operator signs it
+in their wallet (Solflare/Phantom/CLI). Don't include the `action_url`.
 
 ```
 #<id> claim · <x> X + <y> Y (~$<usd>)
 
-Tap to sign: <action_url>
+Unsigned tx (base64) — sign in your wallet:
+<tx_base64>
 ```
 
-≤1000 chars. URL truncated → send as separate message.
+Show `tx_base64` in full (own message if Telegram truncates). `recent_blockhash`
+is the durable-nonce hash when `__config.nonce_address` is set, so the tx
+doesn't expire in 90s; if `instructions` is 1 (no nonce), tell the operator
+it expires in ~90s. Echo only the plugin's fields.
 
 ### 4. Confirm settlement
 
@@ -65,7 +77,8 @@ rejects double-spends".
 
 ## Rules
 
-- Never sign. Never submit. Never broadcast. Action URL is the only path.
+- Never sign. Never submit. Never broadcast. The operator signs the unsigned
+  tx in their own wallet.
 - Plugin error → reply verbatim, no retry
 - One pending tx per nonce account: if `status` says unsettled, do NOT build
   another tx on the same nonce.

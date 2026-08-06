@@ -1,6 +1,5 @@
 //! On-chain account decoders — Meteora DLMM program (devnet
-//! LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo, mainnet
-//! LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSK9q8Mfev5Rq).
+//! LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo (mainnet + devnet).
 //!
 //! Layouts are bytemuck C-repr (per the current program IDL) — NOT borsh.
 //! A hand-rolled cursor reads the fixed offsets; every offset is verified
@@ -60,22 +59,22 @@ impl<'a> Rd<'a> {
         Ok(self.take(1)?[0])
     }
     fn u16(&mut self) -> Result<u16, DecodeError> {
-        Ok(u16::from_le_bytes(self.take(2)?.try_into().unwrap()))
+        Ok(u16::from_le_bytes(self.take(2)?.try_into().map_err(|_| DecodeError::TooShort)?))
     }
     fn u32(&mut self) -> Result<u32, DecodeError> {
-        Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap()))
+        Ok(u32::from_le_bytes(self.take(4)?.try_into().map_err(|_| DecodeError::TooShort)?))
     }
     fn i32(&mut self) -> Result<i32, DecodeError> {
-        Ok(i32::from_le_bytes(self.take(4)?.try_into().unwrap()))
+        Ok(i32::from_le_bytes(self.take(4)?.try_into().map_err(|_| DecodeError::TooShort)?))
     }
     fn u64(&mut self) -> Result<u64, DecodeError> {
-        Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap()))
+        Ok(u64::from_le_bytes(self.take(8)?.try_into().map_err(|_| DecodeError::TooShort)?))
     }
     fn i64(&mut self) -> Result<i64, DecodeError> {
-        Ok(i64::from_le_bytes(self.take(8)?.try_into().unwrap()))
+        Ok(i64::from_le_bytes(self.take(8)?.try_into().map_err(|_| DecodeError::TooShort)?))
     }
     fn u128(&mut self) -> Result<u128, DecodeError> {
-        Ok(u128::from_le_bytes(self.take(16)?.try_into().unwrap()))
+        Ok(u128::from_le_bytes(self.take(16)?.try_into().map_err(|_| DecodeError::TooShort)?))
     }
     fn pubkey(&mut self) -> Result<Pubkey, DecodeError> {
         Ok(Pubkey::try_from(self.take(32)?).map_err(|_| DecodeError::TooShort)?)
@@ -216,6 +215,73 @@ pub fn fee_recipient(position: &PositionV2) -> Pubkey {
 }
 
 /// Claimable fee totals across all bins, in raw token units.
+/// Q64.64 fixed-point scale (matching the program's `SCALE_OFFSET = 64`).
+pub const SCALE_OFFSET: u32 = 64;
+
+/// Claimable fees per the program's per-bin fixed-point math.
+///
+/// For each bin in the position's range:
+/// ```text
+/// new_fee_x = mul_shr(share >> SCALE_OFFSET,
+///                      bin.fee_amount_x_per_token_stored
+///                        - position.fee_infos[i].fee_x_per_token_complete,
+///                      SCALE_OFFSET)          // = (a * b) >> SCALE_OFFSET
+/// claimable_x += new_fee_x + position.fee_infos[i].fee_x_pending
+/// ```
+///
+/// Requires the bin arrays covering the position's range — missing arrays
+/// are skipped (empty bins), decode failures on a covered array abort.
+pub fn claimable_fees_with_bins(
+    position: &PositionV2,
+    bin_arrays: &[BinArray],
+) -> (u64, u64) {
+    let find = |idx: i64| bin_arrays.iter().find(|ba| ba.index == idx);
+    let (mut x, mut y) = (0u128, 0u128);
+    for bin_id in position.lower_bin_id..=position.upper_bin_id {
+        let arr_idx = crate::tx::bin_id_to_bin_array_index(bin_id);
+        let Some(ba) = find(arr_idx) else { continue };
+        let inner = (bin_id as i64 - arr_idx * BINS_PER_ARRAY) as usize;
+        if inner >= BIN_COUNT {
+            continue;
+        }
+        let bin = &ba.bins[inner];
+        // position.fee_infos[i] corresponds to bin (lower_bin_id + i)
+        let fee_idx = (bin_id - position.lower_bin_id) as usize;
+        if fee_idx >= position.fee_infos.len() {
+            continue;
+        }
+        let fee_info = &position.fee_infos[fee_idx];
+        let share = share_at(position, bin_id);
+        if share == 0 {
+            // No liquidity → nothing accrued on the per-token side, but the
+            // pending amount still belongs to us.
+            x += fee_info.fee_x_pending as u128;
+            y += fee_info.fee_y_pending as u128;
+            continue;
+        }
+        // new_fee = (share >> SCALE_OFFSET) * (bin_fee - pos_fee_complete) >> SCALE_OFFSET
+        let share_shifted = (share >> SCALE_OFFSET) as u128;
+        let delta_x = bin
+            .fee_amount_x_per_token_stored
+            .saturating_sub(fee_info.fee_x_per_token_complete);
+        let delta_y = bin
+            .fee_amount_y_per_token_stored
+            .saturating_sub(fee_info.fee_y_per_token_complete);
+        let new_x = (share_shifted * delta_x) >> SCALE_OFFSET;
+        let new_y = (share_shifted * delta_y) >> SCALE_OFFSET;
+        x += new_x + fee_info.fee_x_pending as u128;
+        y += new_y + fee_info.fee_y_pending as u128;
+    }
+    (
+        x.min(u64::MAX as u128) as u64,
+        y.min(u64::MAX as u128) as u64,
+    )
+}
+
+/// Sum of the position's raw `fee_x_pending`/`fee_y_pending` fields — NOT the
+/// correct claimable amount (that needs the per-bin per-token math in
+/// `claimable_fees_with_bins`). Kept for cheap "does it hold any pending"
+/// checks only.
 pub fn claimable_fees(position: &PositionV2) -> (u64, u64) {
     let (mut x, mut y) = (0u64, 0u64);
     for info in &position.fee_infos {
@@ -363,6 +429,11 @@ pub struct Bin {
     pub amount_y: u64,
     pub price: u128,
     pub liquidity_supply: u128,
+    /// Swap fee amount of token X per liquidity deposited (per-token).
+    /// Needed for the claimable-fee calculation (`mulShr` per-bin math).
+    pub fee_amount_x_per_token_stored: u128,
+    /// Swap fee amount of token Y per liquidity deposited (per-token).
+    pub fee_amount_y_per_token_stored: u128,
 }
 
 #[derive(Debug, Clone)]
@@ -391,13 +462,23 @@ pub fn decode_bin_array(data: &[u8]) -> Result<BinArray, DecodeError> {
         amount_y: 0,
         price: 0,
         liquidity_supply: 0,
+        fee_amount_x_per_token_stored: 0,
+        fee_amount_y_per_token_stored: 0,
     }; BIN_COUNT];
     for bin in bins.iter_mut() {
         bin.amount_x = r.u64()?;
         bin.amount_y = r.u64()?;
         bin.price = r.u128()?;
         bin.liquidity_supply = r.u128()?;
-        r.skip(144 - 8 - 8 - 16 - 16)?; // remaining Bin fields + padding
+        // fulfilled_order_amount_x, _y, limit_order_fee_ask/bid_side (u64×4)
+        r.skip(4 * 8)?;
+        // fee_amount_x_per_token_stored, fee_amount_y_per_token_stored (u128×2)
+        bin.fee_amount_x_per_token_stored = r.u128()?;
+        bin.fee_amount_y_per_token_stored = r.u128()?;
+        // open_order_amount, total_processing_order_amount,
+        // processed_order_remaining_amount (u64×3) + order_age (u32) +
+        // limit_order_ask_side (u8) + _padding_1 ([u8;3])
+        r.skip(3 * 8 + 4 + 1 + 3)?;
     }
 
     Ok(BinArray {

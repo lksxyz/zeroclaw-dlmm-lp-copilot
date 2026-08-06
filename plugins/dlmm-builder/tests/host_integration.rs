@@ -19,7 +19,6 @@ fn args_parse_with_config_injection() {
             "__config": {
                 "rpc_url": "https://api.mainnet-beta.solana.com",
                 "owner_pubkey": "2KDS5vtFQJyYJApNGoPVaBSaYP7Vp4R3txRM9SYj13BW",
-                "base_url": "https://dlmm-relay.example.com",
                 "dlmm_program": "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"
             }
         }"#,
@@ -29,10 +28,6 @@ fn args_parse_with_config_injection() {
     assert_eq!(args.new_low, Some(8450));
     let cfg = args.config.expect("__config injected");
     assert_eq!(cfg.rpc_url, "https://api.mainnet-beta.solana.com");
-    assert_eq!(
-        cfg.base_url.as_deref(),
-        Some("https://dlmm-relay.example.com")
-    );
 }
 
 #[test]
@@ -51,7 +46,7 @@ fn owner_pubkey_is_required_for_any_action() {
             "mode": "claim",
             "position_id": "pos",
             "nonce_address": "nonce",
-            "__config": { "rpc_url": "https://x", "base_url": "https://y" }
+            "__config": { "rpc_url": "https://x" }
         }"#,
     )
     .unwrap();
@@ -138,9 +133,9 @@ impl Env {
             owner: &self.owner,
             nonce: &self.nonce,
             program: &self.program,
-            base_url: "https://relay.example.com",
             new_low,
             new_high,
+            use_nonce: true,
             label: None,
         }
     }

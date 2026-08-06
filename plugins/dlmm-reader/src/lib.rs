@@ -30,8 +30,10 @@ pub mod shape;
 #[cfg(target_family = "wasm")]
 mod component {
     use super::shape::{shape_discovery, shape_report, shape_status, Args};
-    use dlmm_core::decoder::{decode_lb_pair, decode_position};
-    use dlmm_core::rpc::{get_jupiter_price, RpcClient};
+    use dlmm_core::decoder::{decode_bin_array, decode_lb_pair, decode_position};
+    use dlmm_core::pda;
+    use dlmm_core::rpc::RpcClient;
+    use dlmm_core::tx::bin_array_indexes_for_range;
     use serde_json::json;
 
     /// Default DLMM program for discovery: devnet. Operators pin their own via
@@ -65,10 +67,14 @@ mod component {
         }
 
         fn description() -> String {
-            "Fetch Meteora DLMM positions and durable-nonce settlement status. \
-             mode=positions: discover positions owned by the configured wallet. \
-             mode=report: read positions (range, in-range, claimable fees in USD, owner match). \
-             mode=status: check whether the nonce hash changed (pending tx settled)."
+            "Meteora DLMM position data for the configured wallet. \
+             mode=positions: discover owned positions (id, pool, configured range) — \
+             quick list. mode=report: FULL per-position report — fetches the pool, \
+             token decimals, and the bin arrays covering the range, then returns \
+             active_bin_id, in_range, owner_match, claimable fees (x, y, usd_approx) \
+             and liquidity_shares. Use mode=report when the operator asks for a \
+             report, live fees, claimable amount, active bin, or 'in range' status. \
+             mode=status: durable-nonce settlement check."
                 .to_string()
         }
 
@@ -109,14 +115,36 @@ mod component {
             let rpc = RpcClient::new(config.rpc_url.clone());
             let owner = config.owner_pubkey.as_deref();
 
-            let out = match args.mode.as_str() {
-                "positions" => positions_mode(&rpc, &args, owner)?,
-                "report" => report_mode(&rpc, &args, owner)?,
-                "status" => status_mode(&rpc, &args)?,
-                other => {
-                    return Err(format!(
-                        "unknown mode: {other} (expected positions|report|status)"
-                    ))
+            // Wrap in catch_unwind so a Rust panic (which otherwise surfaces
+            // as an opaque wasm trap "tool.execute trapped: ...") returns the
+            // actual panic message. This is a diagnostic net while debugging
+            // the report WASM crash; once the panic is gone we can drop it.
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let out = match args.mode.as_str() {
+                    "positions" => positions_mode(&rpc, &args, owner)?,
+                    "report" => report_mode(&rpc, &args, owner)?,
+                    "status" => status_mode(&rpc, &args)?,
+                    other => {
+                        return Err(format!(
+                            "unknown mode: {other} (expected positions|report|status)"
+                        ))
+                    }
+                };
+                Ok::<String, String>(out)
+            }));
+
+            let out = match result {
+                Ok(Ok(out)) => out,
+                Ok(Err(e)) => return Err(e),
+                Err(panic) => {
+                    let msg = if let Some(s) = panic.downcast_ref::<&str>() {
+                        (*s).to_string()
+                    } else if let Some(s) = panic.downcast_ref::<String>() {
+                        s.clone()
+                    } else {
+                        "unknown panic".to_string()
+                    };
+                    return Err(format!("internal plugin panic: {msg}"));
                 }
             };
 
@@ -170,6 +198,14 @@ mod component {
         if args.position_ids.is_empty() {
             return Err("mode=report requires position_ids".to_string());
         }
+        let program = match args.config.as_ref().and_then(|c| c.dlmm_program.as_deref()) {
+            Some(p) => p
+                .parse()
+                .map_err(|_| format!("bad dlmm_program: {p}"))?,
+            None => DEFAULT_DLMM_PROGRAM
+                .parse()
+                .map_err(|e| format!("bad default dlmm_program: {e}"))?,
+        };
         let mut reports = Vec::with_capacity(args.position_ids.len());
         for id in &args.position_ids {
             let pos_key: solana_pubkey::Pubkey = id
@@ -188,13 +224,26 @@ mod component {
             )
             .map_err(|e| format!("pool {} decode: {e}", pos.lb_pair))?;
 
-            // Jupiter prices + mint decimals for a USD estimate.
-            let price_x = get_jupiter_price(&lb.token_x_mint).ok();
-            let price_y = get_jupiter_price(&lb.token_y_mint).ok();
+            // Mint decimals from RPC; Jupiter price API is unreachable from
+            // WASM (different host than the configured RPC URL), so the report
+            // returns raw amounts only — the LLM can estimate USD if it needs to.
             let dec_x = rpc.get_mint_decimals(&lb.token_x_mint).unwrap_or(9);
             let dec_y = rpc.get_mint_decimals(&lb.token_y_mint).unwrap_or(9);
 
-            reports.push(shape_report(id, &pos, &lb, owner, price_x, price_y, dec_x, dec_y));
+            // Fetch the bin arrays covering the position's CURRENT range —
+            // the claimable-fee math needs each bin's per-token stored fees.
+            // Missing arrays are skipped (empty bins); decode errors abort.
+            let mut bin_arrays = Vec::new();
+            for idx in bin_array_indexes_for_range(pos.lower_bin_id, pos.upper_bin_id) {
+                let key = pda::bin_array(&pos.lb_pair, idx, &program).0;
+                if let Some(bytes) = rpc.get_account_info(&key)? {
+                    let ba = decode_bin_array(&bytes)
+                        .map_err(|e| format!("bin array {idx} decode: {e}"))?;
+                    bin_arrays.push(ba);
+                }
+            }
+
+            reports.push(shape_report(id, &pos, &lb, owner, None, None, dec_x, dec_y, &bin_arrays));
         }
         Ok(serde_json::to_string(&json!({ "positions": reports }))
             .map_err(|e| format!("serialize: {e}"))?)

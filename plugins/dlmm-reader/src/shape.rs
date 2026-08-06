@@ -3,7 +3,9 @@
 //! The wasm entry (lib.rs) does the RPC fetching and hands decoded values to
 //! the functions here; `cargo test` exercises them with fixture bytes.
 
-use dlmm_core::decoder::{claimable_fees, total_liquidity_shares, LbPair, PositionV2};
+use dlmm_core::decoder::{
+    claimable_fees_with_bins, total_liquidity_shares, BinArray, LbPair, PositionV2,
+};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -42,20 +44,24 @@ pub fn shape_report(
     price_y: Option<f64>,
     dec_x: u8,
     dec_y: u8,
+    bin_arrays: &[BinArray],
 ) -> serde_json::Value {
-    let (fee_x, fee_y) = claimable_fees(position);
+    let (fee_x, fee_y) = claimable_fees_with_bins(position, bin_arrays);
     let in_range = position.lower_bin_id <= lb_pair.active_id
         && lb_pair.active_id <= position.upper_bin_id;
 
     // Raw → human units, then USD via Jupiter prices (if available).
+    // Clamp to finite f64: `json!` serializes via `to_value(...).unwrap()`,
+    // which panics on NaN/Infinity (the wasm panic we were chasing).
+    let finite = |v: f64| if v.is_finite() { v } else { 0.0 };
     let human = |raw: u64, dec: u8, price: Option<f64>| -> (f64, Option<f64>) {
-        let h = raw as f64 / 10f64.powi(dec as i32);
-        (h, price.map(|p| h * p))
+        let h = finite(raw as f64 / 10f64.powi(dec as i32));
+        (h, price.map(|p| finite(h * p)))
     };
     let (fee_x_h, fee_x_usd) = human(fee_x, dec_x, price_x);
     let (fee_y_h, fee_y_usd) = human(fee_y, dec_y, price_y);
     let usd_approx = match (fee_x_usd, fee_y_usd) {
-        (Some(a), Some(b)) => Some(a + b),
+        (Some(a), Some(b)) => Some(finite(a + b)),
         (Some(a), None) => Some(a),
         (None, Some(b)) => Some(b),
         (None, None) => None,
@@ -74,7 +80,9 @@ pub fn shape_report(
         "in_range": in_range,
         "owner_match": owner_match,
         "claimable": { "x": fee_x_h, "y": fee_y_h, "usd_approx": usd_approx },
-        "liquidity_shares": total_liquidity_shares(position),
+        // Raw share can exceed u64::MAX (serde_json "number out of range" on
+        // the json! macro's to_value). Emit as a string to stay JSON-safe.
+        "liquidity_shares": total_liquidity_shares(position).to_string(),
     })
 }
 
@@ -118,7 +126,7 @@ pub fn shape_discovery(position_id: &str, position: &PositionV2) -> serde_json::
 mod tests {
     use super::*;
     use base64::Engine;
-    use dlmm_core::decoder::{decode_lb_pair, decode_position};
+    use dlmm_core::decoder::{decode_bin_array, decode_lb_pair, decode_position};
 
     fn fixture() -> serde_json::Value {
         serde_json::from_str(include_str!("../../dlmm-core/tests/fixtures.json")).unwrap()
@@ -135,6 +143,10 @@ mod tests {
         let f = fixture();
         let pos = decode_position(&b64(&f["position_v2"])).unwrap();
         let lb = decode_lb_pair(&b64(&f["lb_pair"])).unwrap();
+        // Array 120 covers position bins 8450..8469; the pending fees live
+        // in fee_infos[0] (bin 8450), and the aligned bin has no per-token
+        // stored fee, so claimable = pending sum (same as before the fix).
+        let bin_arr = decode_bin_array(&b64(&f["bin_array_aligned"])).unwrap();
 
         let r = shape_report(
             "7fTxDfcWTMVJg2r26Jv496HsuEBi6Hc77QEsHE9NSVZ1",
@@ -145,6 +157,7 @@ mod tests {
             Some(1.0),
             9,
             6,
+            &[bin_arr],
         );
         assert_eq!(r["id"], "7fTxDfcWTMVJg2r26Jv496HsuEBi6Hc77QEsHE9NSVZ1");
         assert_eq!(r["lb_pair"], f["keys"]["pool"]);
@@ -155,7 +168,7 @@ mod tests {
         // 1_000_000 raw x / 1e9 * $150 = $0.15; 2_000_000 / 1e6 * $1 = $2
         let usd = r["claimable"]["usd_approx"].as_f64().unwrap();
         assert!((usd - 2.15).abs() < 1e-9, "usd_approx = {usd}");
-        assert_eq!(r["liquidity_shares"], json!(1500000000u128));
+        assert_eq!(r["liquidity_shares"], json!("1500000000"));
     }
 
     #[test]
@@ -163,6 +176,7 @@ mod tests {
         let f = fixture();
         let pos = decode_position(&b64(&f["position_v2"])).unwrap();
         let lb = decode_lb_pair(&b64(&f["lb_pair"])).unwrap();
+        let bin_arr = decode_bin_array(&b64(&f["bin_array_aligned"])).unwrap();
         let r = shape_report(
             "pos",
             &pos,
@@ -172,6 +186,7 @@ mod tests {
             None,
             9,
             6,
+            &[bin_arr],
         );
         assert_eq!(r["owner_match"], false);
         assert!(r["claimable"]["usd_approx"].is_null());

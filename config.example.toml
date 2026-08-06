@@ -170,16 +170,25 @@ tz   = "America/Sao_Paulo"
 # redirect the RPC, change the signer wallet, or point at a different relay.
 # The first entry must be hand-added — `zeroclaw config set` can't
 # materialize a plugins.entries node for a freshly installed plugin.
+# NOTE: `plugins.entries` is a TOML array of tables (natural key `name`),
+# not a `[plugins.entries.<name>.config]` table — the latter resets the
+# whole `plugins` section to defaults at load.
 [plugins]
 enabled = true
 
-[plugins.entries.dlmm-reader.config]
-rpc_url       = "${SOLANA_RPC_URL}"
-owner_pubkey  = "${OPERATOR_WALLET_PUBKEY}"
-dlmm_program  = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSK9q8Mfev5Rq"
+[[plugins.entries]]
+name = "dlmm-reader"
+config = {
+  rpc_url       = "${SOLANA_RPC_URL}",
+  owner_pubkey  = "${OPERATOR_WALLET_PUBKEY}",
+  dlmm_program  = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",
+}
 
-[plugins.entries.dlmm-builder.config]
-rpc_url       = "${SOLANA_RPC_URL}"
-owner_pubkey  = "${OPERATOR_WALLET_PUBKEY}"
-base_url      = "${ACTION_ENDPOINT_BASE}"
-dlmm_program  = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSK9q8Mfev5Rq"
+[[plugins.entries]]
+name = "dlmm-builder"
+config = {
+  rpc_url       = "${SOLANA_RPC_URL}",
+  owner_pubkey  = "${OPERATOR_WALLET_PUBKEY}",
+  dlmm_program  = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",
+  nonce_address = "${DURABLE_NONCE_ADDRESS}",
+}
