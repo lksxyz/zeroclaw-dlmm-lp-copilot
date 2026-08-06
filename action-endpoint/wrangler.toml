@@ -1,17 +1,7 @@
 name = "dlmm-lp-copilot-action-endpoint"
 main = "src/index.ts"
 compatibility_date = "2026-07-01"
-compatibility_flags = ["nodejs_compat"]
 
-[vars]
-DLMM_PROGRAM = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSK9q8Mfev5Rq"
-# For Devnet, override via `wrangler secret put DLMM_PROGRAM`.
-
-# Secrets — set with `wrangler secret put <NAME>`:
-#   RPC_URL              e.g. https://api.mainnet-beta.solana.com
-#   NONCE_ACCOUNT        base58, for the rebalance path (optional)
-#   NONCE_AUTHORITY      base58, signs AdvanceNonceAccount (operator wallet)
-
-[[unsafe.bindings]]
-name = "RPC_URL"
-type = "secret_text"
+# Stateless relay: no vars, no secrets, no bindings, no compat flags.
+# The tx arrives base64url-encoded in the URL path; everything the worker
+# needs is in the bytes. Deploy: npx wrangler deploy

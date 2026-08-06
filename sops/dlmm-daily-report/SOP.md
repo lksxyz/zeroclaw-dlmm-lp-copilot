@@ -2,18 +2,16 @@
 
 ## Steps
 
-1. **Fetch positions** — `read_skill meteora-position`, execute with:
-   - `${SOLANA_RPC_URL}` = `<<RPC_URL>>`
-   - `${SOLANA_RPC_URL_BACKUP}` = `<<RPC_URL_BACKUP>>`
-   - `${DLMM_PROGRAM}` = `<<DLMM_PROGRAM>>`
-   - `${WALLET_PUBKEY}` = `<<WALLET_PUBKEY>>`
-   - ${FEE_MILESTONE_USD} = `<<FEE_MILESTONE_USD>>`
-   - Meteora: `http_request GET https://dlmm-api.meteora.ag/pair/<pool_address>`
-   - Price: `http_request GET https://api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112`
-   Empty = valid. "No DLMM positions" is not an error.
-   Tools: read_skill, http_request
+1. **Discover + report positions** — `dlmm_reader` (in-wasm; RPC/owner come
+   from the plugin config section, not SOP vars):
+   - `{"mode":"positions"}` → ids
+   - `{"mode":"report","position_ids":[...]}` → ranges, active bin, claimable
+   Empty = valid. "No DLMM positions" is not an error — report the empty state.
+   Tools: dlmm_reader
 
-2. **Format** — `read_skill meteora-report`, render positions from step 1.
+2. **Format** — `read_skill meteora-report`, render the step-1 output with the
+   Telegram template. Report only what `dlmm_reader` returned — never invent
+   claimable or range values.
    Tools: read_skill
 
 3. **Send** — `send_message_to_peer` → `telegram.<<CHANNEL_ALIAS>>` → `<<TARGET>>`

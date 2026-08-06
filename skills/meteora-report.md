@@ -1,15 +1,15 @@
 ---
 name: meteora-report
-version: 4
+version: 5
 custody: T0
-summary: Format position data as Telegram-friendly report
+summary: Format dlmm_reader output as Telegram-friendly report
 ---
 
 # meteora-report
 
-Takes `meteora-position` output. Formats for Telegram (4096 char limit).
+Takes `meteora-position` output (from `dlmm_reader`). Formats for Telegram (4096 char limit).
 
-Tools: use `send_message_to_peer`, `read_skill`, `memory_recall`, `http_request`. Avoid `web_fetch`, `web_search_tool`, `browser` — stick to `http_request` for network calls.
+Tools: use `send_message_to_peer`, `read_skill`, `memory_recall`. No network tools — data comes from the plugin.
 
 ## When
 
@@ -29,22 +29,19 @@ Telegram supports: `*bold*`, `_italic_`, `` `code` ``, `\n`, emoji, `·`, `═`,
 ```
 🦞 DLMM Daily — <YYYY-MM-DD> <HH:MM> <TZ>
 ═══════════════════════════════════════
-*n* positions · TVL `$<sum>` · 24h fees `$<sum>` · claimable `$<sum>`
+*n* positions · claimable `$<sum>`
 
-✅ *#<id>* `X/Y` · bin_step `<n>`
-   value `$<usd>` · range *in* · IL `−<pct>%`
-   24h fees `$<24h>` · claimable `$<claimable>`
+✅ *#<id>* `bin <lo>..<hi>` · *in*
+   claimable `$<claimable>` · owner ✓
    ⤷ <action> — <reason ≤90 chars>
 
 ─────────────────────────────────────────────────
 
-⚠️ *#<id>* `X/Y` · bin_step `<n>` · *out-of-range*
-   value `$<usd>` · range *out* · IL `−<pct>%`
-   24h fees `$<24h>` · claimable `$<claimable>`
+⚠️ *#<id>* `bin <lo>..<hi>` · *out-of-range*
+   active `$<active_bin_id>` · claimable `$<claimable>`
    ⤷ rebalance — active bin at <active_id>, suggest recentering
 
 ═══════════════════════════════════════
-Δ 24h `+$<delta>` · Δ 7d `+$<delta>`
 ↳ claim #<id> · rebalance #<id> · report
 ```
 
@@ -60,16 +57,15 @@ No DLMM positions for this wallet.
 
 ## Icons
 
-✅ in-range · ⚠️ out-of-range · 🟡 IL warning · ⏸️ stale price · ⛔ stale pool
+✅ in-range · ⚠️ out-of-range · ⛔ owner mismatch · ⏸️ stale price
 
 ## Number format
 
 USD: `$1,847.32` / `$0.93` (comma, 0 or 2 decimals).
-IL: en-dash `−`, sign, 2 decimals (`−0.42%`).
 Empty: `--`, never `null`/`0`/`N/A`.
 
 ## Rules
 
 - No signing, no tx building, no Action URLs in report
 - No hedging, no apologising. Mirror user's language.
-- Deltas from `memory.baseline_value_<id>`. First run = write V0, show `--`.
+- Report only what `dlmm_reader` returned. Never invent claimable or range values.

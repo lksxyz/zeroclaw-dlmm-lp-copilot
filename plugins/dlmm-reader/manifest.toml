@@ -1,6 +1,6 @@
 name = "dlmm-reader"
 version = "0.1.0"
-description = "Read Meteora DLMM positions, return per-position status with IL and range state."
+description = "Fetch Meteora DLMM positions and durable-nonce settlement status in-wasm: report (range, in-range, claimable fees in USD, owner match) or status (nonce hash settlement check)."
 author = "DLMM LP Copilot contributors"
 wasm_path = "dlmm_reader.wasm"
 capabilities = ["tool"]

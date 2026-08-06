@@ -1,0 +1,33 @@
+[package]
+name = "dlmm-builder"
+version = "0.1.0"
+edition = "2021"
+# MIT matches the repo root LICENSE (bounty requires MIT on plugin code).
+license = "MIT"
+description = "ZeroClaw WIT tool plugin: build unsigned Meteora DLMM claim/rebalance transactions in-wasm (waki) — durable nonce as recentBlockhash, mechanical validation, solana-action: URL out."
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Shared pure core: decode, nonce helpers, PDA, tx building, mechanical
+# validation, waki JSON-RPC. Wasm-only deps live in dlmm-core's cfg section.
+dlmm-core = { path = "../dlmm-core" }
+solana-pubkey = { version = "2" }
+
+# Pinned against ZeroClaw runtime 0.8.4. See wit/UPSTREAM_REF.md; cargo build
+# uses --locked so Cargo.lock is the authoritative resolver.
+wit-bindgen = "0.46"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bs58 = "0.5"
+base64 = "0.22"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+codegen-units = 1
+
+[workspace]

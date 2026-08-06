@@ -1,15 +1,18 @@
 ---
 name: meteora-rebalance
-version: 3
+version: 4
 custody: T1
-summary: Build atomic remove+add rebalance tx on durable nonce, return Action URL
+summary: Build atomic remove+add rebalance tx in-wasm (dlmm_builder), return action URL
 ---
 
 # meteora-rebalance
 
-Build atomic removeLiquidity + addLiquidity on durable nonce. Return Action URL. User signs.
+Build the atomic rebalance (AdvanceNonce → removeLiquidity 100% →
+addLiquidityByStrategy) with the `dlmm_builder` plugin in-wasm. Return the
+`solana-action:` URL. User signs.
 
-Tools: use `http_request`, `send_message_to_peer`, `read_skill`, `memory_recall`. Avoid `web_fetch`, `web_search_tool`, `browser` — stick to `http_request` for network calls.
+Tools: `dlmm_builder`, `dlmm_reader`, `send_message_to_peer`, `read_skill`,
+`memory_recall`. `http_request` is DENIED.
 
 ## Trigger
 
@@ -17,9 +20,11 @@ DM `rebalance #<id>` / `rebalance <id>` / `rebalance` (last-reported). Execute n
 
 ## Steps
 
-### 1. Read position
+### 1. Read the position
 
-`read_skill meteora-position`, fetch `#<id>`. Get: `pool_address`, `position_pubkey`, `lower_bin_id`, `upper_bin_id`, `active_id`, `bin_step`.
+`dlmm_reader {"mode":"report","position_ids":["<id>"]}` — get `range`,
+`active_bin_id`, `owner_match` (must be true). Also fetch `bin_step` for the
+range scaling below.
 
 ### 2. Propose new range
 
@@ -28,34 +33,40 @@ Center on `active_id`. Scale by bin_step:
 - `rebalance #<id> wide` → ±10%
 - `rebalance #<id> tight` → ±2%
 
+`new_low = active_id - range_bins`, `new_high = active_id + range_bins`.
+
 ### 3. Build atomic tx
 
 ```
-http_request POST ${ACTION_ENDPOINT_BASE}/actions/rebalance?pos=<pubkey>&pool=<pool>&new_low=<lo>&new_high=<hi>&nonce=<nonce_acct>
-{"account":"<user_wallet>"}
+dlmm_builder {"mode":"rebalance","position_id":"<id>","nonce_address":"${NONCE_ACCOUNT}","new_low":<lo>,"new_high":<hi>,"label":"Rebalance"}
 ```
 
-Worker encodes: AdvanceNonce → removeLiquidity(100%) → addLiquidityByStrategy. Durable nonce (`${NONCE_ACCOUNT}`, authority `${OPERATOR_WALLET_PUBKEY}`). Tx stays valid indefinitely.
+Plugin validates mechanically (owner match, liquidity > 0, low < high, range
+contains the live active bin, bin-array indexes inside the default bitmap),
+derives re-deposit amounts from the position's shares × bin reserves (fetched
+in-wasm), and returns `{"action_url":"solana-action:...","instructions":3,...}`.
 
 ### 4. Reply
 
 ```
 #<id> rebalance · bins <old_lo>..<old_hi> → <new_lo>..<new_hi>
 
-[Tap to rebalance](solana-action:${ACTION_ENDPOINT_BASE}/actions/rebalance?pos=<pubkey>&pool=<pool>&new_low=<lo>&new_high=<hi>&nonce=<nonce>&label=Rebalance)
+Tap to sign: <action_url>
 ```
 
-### 5. Confirm
+### 5. Confirm settlement
 
-Poll position account until range updates. On success:
+Poll every 10s for ≤60s: `dlmm_reader {"mode":"status","nonce_address":"${NONCE_ACCOUNT}","previous_nonce_hash":"<recent_blockhash from step 3>"}`.
+
+`settled: true` → nonce advanced → tx landed:
 
 ```
-✓ #<id> rebalanced · <new_lo>..<new_hi>  ref: <sig>
+✓ #<id> rebalanced · <new_lo>..<new_hi>
 ```
 
 ## Rules
 
 - Never sign. Never submit. Never broadcast.
-- Never reuse nonce for concurrent txs.
+- Never reuse the nonce while a tx is unsettled.
 - Range never > ±15% without `wide` override.
-- Always remove + add in same tx.
+- Plugin error → reply verbatim, no retry.

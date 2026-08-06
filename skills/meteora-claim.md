@@ -1,15 +1,18 @@
 ---
 name: meteora-claim
-version: 3
+version: 4
 custody: T1
-summary: Build unsigned claimFee tx, return Solana Action URL for user signing
+summary: Build unsigned claim tx in-wasm (dlmm_builder), return solana-action URL
 ---
 
 # meteora-claim
 
-Build unsigned claimFee tx. Return Solana Action URL. User signs. Agent never holds keys.
+Build the unsigned claim tx with the `dlmm_builder` plugin (in-wasm: fetch +
+decode + mechanical validation + wire encoding). Return the `solana-action:`
+URL. User signs. Agent never holds keys.
 
-Tools: use `http_request`, `send_message_to_peer`, `read_skill`, `memory_recall`. Avoid `web_fetch`, `web_search_tool`, `browser` — stick to `http_request` for network calls.
+Tools: `dlmm_builder`, `dlmm_reader`, `send_message_to_peer`, `read_skill`,
+`memory_recall`. `http_request` is DENIED.
 
 ## Trigger
 
@@ -17,46 +20,52 @@ DM `claim #<id>` / `claim <id>` / `claim` (last-reported). Execute now.
 
 ## Steps
 
-### 1. Read position
+### 1. Confirm the position
 
-`read_skill meteora-position`, follow its fetch steps for `#<id>`. Get: `pool_address`, `position_pubkey`, `user_wallet`.
+`dlmm_reader {"mode":"report","position_ids":["<id>"]}` — confirm
+`owner_match: true` (else stop: "ownership mismatch — refusing to build") and
+claimable > 0 (the plugin rejects zero claims anyway).
 
 ### 2. Build tx
 
 ```
-http_request POST ${ACTION_ENDPOINT_BASE}/actions/claim?pos=<pubkey>&pool=<pool>
-{"account":"<user_wallet>"}
+dlmm_builder {"mode":"claim","position_id":"<id>","nonce_address":"${NONCE_ACCOUNT}"}
 ```
 
-Worker returns `{"transaction":"<base64>"}`.
-
-### 3. Reply with Action URL
+Plugin validates mechanically (owner == `__config.owner_pubkey`, claimable > 0,
+bin-array range) and returns:
 
 ```
-#<id> claim · <X amount> <X symbol> + <Y amount> <Y symbol> (~$<usd>)
+{"action_url":"solana-action:...","tx_base64":"...","instructions":2,
+ "recent_blockhash":"<nonce hash>","label":"Claim DLMM fees"}
+```
 
-[Tap to claim](solana-action:${ACTION_ENDPOINT_BASE}/actions/claim?pos=<pubkey>&pool=<pool>&label=Claim)
+### 3. Reply with the action URL
+
+```
+#<id> claim · <x> X + <y> Y (~$<usd>)
+
+Tap to sign: <action_url>
 ```
 
 ≤1000 chars. URL truncated → send as separate message.
 
-### 4. Confirm
+### 4. Confirm settlement
 
-Poll every 10s for ≤60s:
+Poll every 10s for ≤60s: `dlmm_reader {"mode":"status","nonce_address":"${NONCE_ACCOUNT}","previous_nonce_hash":"<recent_blockhash from step 2>"}`.
 
-```
-http_request POST ${SOLANA_RPC_URL}
-{"jsonrpc":"2.0","id":1,"method":"getSignaturesForAddress","params":["<position_pubkey>",{"limit":1}]}
-```
-
-On success:
+`settled: true` → the nonce advanced → tx landed:
 
 ```
-✓ #<id> claimed · <amount> + <amount> (~$<usd>)  ref: <sig>
+✓ #<id> claimed — nonce advanced (settled)
 ```
+
+`settled: false` after 60s → "still pending; nothing lost — the nonce guard
+rejects double-spends".
 
 ## Rules
 
 - Never sign. Never submit. Never broadcast. Action URL is the only path.
-- Worker 4xx → reply error, no retry
-- Worker 5xx → retry once after 3s
+- Plugin error → reply verbatim, no retry
+- One pending tx per nonce account: if `status` says unsettled, do NOT build
+  another tx on the same nonce.

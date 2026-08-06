@@ -1,41 +1,34 @@
 /**
- * Self-hosted Solana Action endpoint for DLMM LP Copilot.
+ * Stateless Solana Action relay — DLMM LP Copilot.
+ *
+ * The dlmm_builder plugin (in-wasm, on ZeroClaw) mechanically validates and
+ * encodes an unsigned claim/rebalance transaction, then hands the LLM a
+ * `solana-action:` URL with the tx bytes in the path:
+ *
+ *   solana-action:https://<relay>/tx/<base64url>
  *
  * Routes:
- *   GET  /actions/claim?pos=<pubkey>&pool=<pubkey>       → Action metadata
- *   POST /actions/claim?pos=<pubkey>&pool=<pubkey>       → unsigned claimFee tx
- *   GET  /actions/rebalance?pos=<pubkey>&pool=<pubkey>&new_low=<bin>&new_high=<bin>&nonce=<pubkey>
- *   POST /actions/rebalance (same params in body.account)  → atomic removeLiquidity+addLiquidityByStrategy on durable nonce
+ *   GET  /tx/<b64url> → Action metadata. The preview is rendered FROM THE
+ *                       BYTES — instruction count, program ids, nonce-first,
+ *                       single signer — no RPC, no storage.
+ *   POST /tx/<b64url> → echoes the tx back for the wallet to sign; refuses
+ *                       any wallet that isn't the tx's fee payer (the only
+ *                       required signer).
+ *   GET  /health      → liveness.
  *
- * Deploy:   npx wrangler deploy
- * Set:      wrangler secret put RPC_URL
- *           wrangler secret put NONCE_ACCOUNT    (rebalance only)
- *           wrangler secret put NONCE_AUTHORITY  (rebalance only)
- *
- * Single-operator design: NONCE_AUTHORITY must be the LP's own wallet
- * (same as `wallet_pubkey` in config.example.toml). The rebalance tx is
- * signed by the user alone — user IS the nonce authority. The endpoint
- * rejects any other signer with 403.
+ * Security by construction: no secrets, no KV, no RPC, no SDKs, zero runtime
+ * dependencies. The tx was already validated by the plugin ("LLM proposes,
+ * plugin verifies"); only the operator's signature can land it.
  */
-import {
-  ActionGetResponse,
-  ActionPostResponse,
-  ACTIONS_CORS_HEADERS,
-  createPostResponse,
-} from '@solana/actions';
-import { Connection, PublicKey } from '@solana/web3.js';
-import { buildClaimFee, buildRebalance } from './dlmm';
 
-export interface Env {
-  RPC_URL: string;
-  DLMM_PROGRAM: string;
-  NONCE_ACCOUNT?: string;
-  NONCE_AUTHORITY?: string;
-}
+const SYSTEM_PROGRAM = '11111111111111111111111111111111';
+const DLMM_DEVNET = 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo';
+const DLMM_MAINNET = 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSK9q8Mfev5Rq';
 
 const cors = (extra: Record<string, string> = {}) => ({
-  ...ACTIONS_CORS_HEADERS,
   'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
   ...extra,
 });
 
@@ -48,29 +41,30 @@ const ICONS: Record<string, string> = {
 };
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request): Promise<Response> {
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: cors() });
     }
 
     const url = new URL(request.url);
     const baseUrl = url.origin; // icons are served from wherever this worker lives
+
     try {
-      if (url.pathname === '/actions/claim') {
-        return request.method === 'GET'
-          ? await handleClaimGet(url, baseUrl)
-          : await handleClaimPost(request, url, env);
-      }
-      if (url.pathname === '/actions/rebalance') {
-        return request.method === 'GET'
-          ? await handleRebalanceGet(url, baseUrl)
-          : await handleRebalancePost(request, url, env);
-      }
       if (url.pathname === '/health') {
         return new Response(JSON.stringify({ ok: true }), {
           headers: cors({ 'content-type': 'application/json' }),
         });
       }
+
+      const tx = url.pathname.match(/^\/tx\/([A-Za-z0-9_-]+)$/)?.[1];
+      if (tx) {
+        const parsed = parseTx(tx);
+        if (!parsed) return badRequest('invalid transaction payload');
+        return request.method === 'GET'
+          ? getAction(parsed, baseUrl)
+          : postTransaction(request, parsed);
+      }
+
       const icon = ICONS[url.pathname];
       if (icon) {
         return new Response(Uint8Array.from(atob(icon), (c) => c.charCodeAt(0)), {
@@ -78,7 +72,7 @@ export default {
         });
       }
       return new Response('Not found', { status: 404, headers: cors() });
-    } catch (e: any) {
+    } catch (e) {
       // Log details server-side; never leak internals to the client.
       console.error('handler error:', e);
       return new Response(JSON.stringify({ error: 'internal error' }), {
@@ -89,179 +83,184 @@ export default {
   },
 };
 
-// --- CLAIM ---------------------------------------------------------------
+// --- wire-format parsing (hand-rolled; mirrors web3.js compileMessage) ------
 
-async function handleClaimGet(url: URL, baseUrl: string): Promise<Response> {
-  const pos = url.searchParams.get('pos');
-  const pool = url.searchParams.get('pool');
-  if (!pos || !pool) return badRequest('pos and pool are required');
+const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
-  // We don't fetch price here — the GET is shown by the wallet *before* the user
-  // signs. Wallets respect an upper latency budget; we return quickly.
-  const metadata: ActionGetResponse = {
-    type: 'action',
-    title: 'Claim DLMM fees',
-    icon: `${baseUrl}/icon-claim.png`,
-    description:
-      'Claim accrued trading fees from this Meteora DLMM position. ' +
-      'Funds land in your wallet, position stays open.',
-    label: 'Claim',
-    links: { actions: [] },
-  };
-  return new Response(JSON.stringify(metadata), {
-    headers: cors({ 'content-type': 'application/json' }),
-  });
+function bs58Encode(bytes: Uint8Array): string {
+  const digits: number[] = [];
+  for (let i = 0; i < bytes.length; i++) {
+    let carry = bytes[i];
+    for (let j = 0; j < digits.length; j++) {
+      carry += digits[j] << 8;
+      digits[j] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = (carry / 58) | 0;
+    }
+  }
+  let out = '';
+  for (let i = 0; i < bytes.length && bytes[i] === 0; i++) out += '1';
+  for (let i = digits.length - 1; i >= 0; i--) out += ALPHABET[digits[i]];
+  return out;
 }
 
-async function handleClaimPost(
-  request: Request,
-  url: URL,
-  env: Env,
-): Promise<Response> {
-  const pos = url.searchParams.get('pos');
-  const pool = url.searchParams.get('pool');
-  if (!pos || !pool) return badRequest('pos and pool are required');
+interface ParsedTx {
+  numSigners: number;
+  feePayer: string;
+  recentBlockhash: string;
+  instructions: { programId: string; accountCount: number; dataLen: number }[];
+}
 
-  const body = await readJsonBody(request);
-  if (!body?.account) return badRequest('account is required');
-
-  let user: PublicKey;
-  let position: PublicKey;
-  let lbPair: PublicKey;
+function b64urlToBytes(s: string): Uint8Array | null {
   try {
-    user = new PublicKey(body.account);
-    position = new PublicKey(pos);
-    lbPair = new PublicKey(pool);
+    const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/'));
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
   } catch {
-    return badRequest('invalid public key');
+    return null;
   }
-
-  const conn = new Connection(env.RPC_URL, 'confirmed');
-
-  const tx = await buildClaimFee(conn, env, position, lbPair, user);
-
-  const payload: ActionPostResponse = await createPostResponse({
-    fields: { type: 'transaction', transaction: tx, message: 'Claim DLMM fees' },
-  });
-  return new Response(JSON.stringify(payload), {
-    headers: cors({ 'content-type': 'application/json' }),
-  });
 }
 
-// --- REBALANCE -----------------------------------------------------------
+function bytesToB64(bytes: Uint8Array): string {
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
 
-async function handleRebalanceGet(url: URL, baseUrl: string): Promise<Response> {
-  const pos = url.searchParams.get('pos');
-  const pool = url.searchParams.get('pool');
-  const newLow = url.searchParams.get('new_low');
-  const newHigh = url.searchParams.get('new_high');
-  if (!pos || !pool || !newLow || !newHigh) {
-    return badRequest('pos, pool, new_low, new_high are required');
-  }
+/** Parse a serialized transaction: shortvec signature count + placeholders,
+ * then the message (legacy or v0). Every length is bounds-checked — malformed
+ * input returns null, never throws. */
+export function parseTx(b64url: string): ParsedTx | null {
+  const bytes = b64urlToBytes(b64url);
+  if (!bytes) return null;
 
-  const metadata: ActionGetResponse = {
-    type: 'action',
-    title: 'Rebalance DLMM position',
-    icon: `${baseUrl}/icon-rebalance.png`,
-    description:
-      `Atomic rebalance: removeLiquidity 100% from the current bin range, ` +
-      `then addLiquidityByStrategy into the new bin range. ` +
-      `Uses a durable nonce so the signature is valid as long as you need.`,
-    label: 'Rebalance',
-    links: { actions: [] },
+  let p = 0;
+  const shortvec = (): number => {
+    let n = 0;
+    let shift = 0;
+    for (;;) {
+      if (p >= bytes.length) return -1;
+      const b = bytes[p++];
+      n |= (b & 0x7f) << shift;
+      if ((b & 0x80) === 0) break;
+      shift += 7;
+    }
+    return n;
   };
-  return new Response(JSON.stringify(metadata), {
-    headers: cors({ 'content-type': 'application/json' }),
-  });
+
+  // signatures: shortvec count, then 64 bytes each (unsigned → placeholders)
+  const sigCount = shortvec();
+  if (sigCount < 0 || sigCount > 8 || p + sigCount * 64 > bytes.length) return null;
+  p += sigCount * 64;
+
+  if (bytes[p] === 0x80) p++; // v0 message version prefix
+  if (p + 3 > bytes.length) return null;
+  const numRequired = bytes[p];
+  p += 3; // numRequiredSignatures, readonly-signed, readonly-unsigned
+
+  const numKeys = shortvec();
+  if (numKeys < 1 || numKeys > 64) return null;
+  const keys: string[] = [];
+  for (let i = 0; i < numKeys; i++) {
+    if (p + 32 > bytes.length) return null;
+    keys.push(bs58Encode(bytes.subarray(p, p + 32)));
+    p += 32;
+  }
+  if (p + 32 > bytes.length) return null;
+  const recentBlockhash = bs58Encode(bytes.subarray(p, p + 32));
+  p += 32;
+
+  const numIxs = shortvec();
+  if (numIxs < 0 || numIxs > 8) return null;
+  const instructions: ParsedTx['instructions'] = [];
+  for (let i = 0; i < numIxs; i++) {
+    if (p >= bytes.length) return null;
+    const pidIdx = bytes[p++];
+    const acctCount = shortvec();
+    if (acctCount < 0 || p + acctCount > bytes.length) return null;
+    p += acctCount;
+    const dataLen = shortvec();
+    if (dataLen < 0 || p + dataLen > bytes.length) return null;
+    p += dataLen;
+    instructions.push({ programId: keys[pidIdx] ?? '?', accountCount: acctCount, dataLen });
+  }
+
+  return { numSigners: numRequired, feePayer: keys[0], recentBlockhash, instructions };
 }
 
-async function handleRebalancePost(
-  request: Request,
-  url: URL,
-  env: Env,
-): Promise<Response> {
-  if (!env.NONCE_ACCOUNT || !env.NONCE_AUTHORITY) {
-    return new Response(
-      JSON.stringify({ error: 'rebalance requires NONCE_ACCOUNT and NONCE_AUTHORITY secrets' }),
-      { status: 503, headers: cors({ 'content-type': 'application/json' }) },
-    );
-  }
+// --- handlers ----------------------------------------------------------------
 
-  const pos = url.searchParams.get('pos');
-  const pool = url.searchParams.get('pool');
-  const newLow = url.searchParams.get('new_low');
-  const newHigh = url.searchParams.get('new_high');
-  if (!pos || !pool || !newLow || !newHigh) {
-    return badRequest('pos, pool, new_low, new_high are required');
-  }
+function getAction(tx: ParsedTx, baseUrl: string): Response {
+  const { title, icon, description } = preview(tx);
+  return new Response(
+    JSON.stringify({
+      type: 'action',
+      title,
+      icon: `${baseUrl}${icon}`,
+      description,
+      label: 'Sign transaction',
+      links: { actions: [] },
+    }),
+    { headers: cors({ 'content-type': 'application/json' }) },
+  );
+}
 
-  const body = await readJsonBody(request);
+async function postTransaction(request: Request, tx: ParsedTx): Promise<Response> {
+  let body: { account?: string } | null = null;
+  try {
+    body = (await request.json()) as { account?: string };
+  } catch {
+    /* malformed body */
+  }
   if (!body?.account) return badRequest('account is required');
 
-  // Single-operator: the signing user must BE the nonce authority (their own
-  // nonce account). The Action spec provides exactly one signer, so we refuse
-  // anyone else — the tx would fail on-chain anyway, but fail early and clean.
-  if (body.account !== env.NONCE_AUTHORITY) {
+  // The plugin builds the tx with exactly one required signer: the operator
+  // (fee payer). Refuse anyone else — the tx couldn't land anyway.
+  if (body.account !== tx.feePayer) {
     return new Response(
-      JSON.stringify({ error: 'account is not the authorized rebalance operator' }),
+      JSON.stringify({ error: 'this transaction is addressed to a different wallet' }),
       { status: 403, headers: cors({ 'content-type': 'application/json' }) },
     );
   }
 
-  let newLowerBinId: number;
-  let newUpperBinId: number;
-  try {
-    newLowerBinId = parseInt(newLow, 10);
-    newUpperBinId = parseInt(newHigh, 10);
-    if (!Number.isInteger(newLowerBinId) || !Number.isInteger(newUpperBinId)) {
-      throw new Error('not int');
-    }
-    if (newLowerBinId <= 0 || newUpperBinId <= 0 || newUpperBinId <= newLowerBinId) {
-      throw new Error('bad range');
-    }
-  } catch {
-    return badRequest('new_low and new_high must be positive integers with new_low < new_high');
-  }
-
-  let user: PublicKey;
-  let position: PublicKey;
-  let lbPair: PublicKey;
-  try {
-    user = new PublicKey(body.account);
-    position = new PublicKey(pos);
-    lbPair = new PublicKey(pool);
-  } catch {
-    return badRequest('invalid public key');
-  }
-
-  const conn = new Connection(env.RPC_URL, 'confirmed');
-
-  const tx = await buildRebalance(conn, env, {
-    position,
-    pool: lbPair,
-    newLowerBinId,
-    newUpperBinId,
-    user,
-    nonceAccount: new PublicKey(env.NONCE_ACCOUNT),
-    nonceAuthority: new PublicKey(env.NONCE_AUTHORITY),
-  });
-
-  const payload: ActionPostResponse = await createPostResponse({
-    fields: { type: 'transaction', transaction: tx, message: 'Rebalance DLMM position' },
-  });
-  return new Response(JSON.stringify(payload), {
-    headers: cors({ 'content-type': 'application/json' }),
-  });
+  // Echo the decoded tx back (standard base64, as the Actions spec expects).
+  const b64url = new URL(request.url).pathname.split('/').pop()!;
+  const bytes = b64urlToBytes(b64url)!;
+  return new Response(
+    JSON.stringify({
+      type: 'transaction',
+      transaction: bytesToB64(bytes),
+      message: 'DLMM LP Copilot — sign to broadcast',
+    }),
+    { headers: cors({ 'content-type': 'application/json' }) },
+  );
 }
 
-// --- helpers -------------------------------------------------------------
+/** Human-readable preview rendered purely from the message bytes. */
+function preview(tx: ParsedTx): { title: string; icon: string; description: string } {
+  const ixs = tx.instructions;
+  const first = ixs[0];
+  const nonceFirst =
+    first?.programId === SYSTEM_PROGRAM && first.dataLen === 4 && first.accountCount === 3;
+  const dlmm = ixs.some((i) => i.programId === DLMM_DEVNET || i.programId === DLMM_MAINNET);
+  const kind = ixs.length === 2 ? 'claim' : ixs.length === 3 ? 'rebalance' : 'unknown';
+  const programNames = ixs.map((i) =>
+    i.programId === SYSTEM_PROGRAM ? 'System' : dlmm ? 'DLMM' : '?',
+  );
 
-async function readJsonBody(request: Request): Promise<{ account?: string } | null> {
-  try {
-    return (await request.json()) as { account?: string };
-  } catch {
-    return null;
-  }
+  const title = kind === 'claim' ? 'Claim DLMM fees' : kind === 'rebalance' ? 'Rebalance DLMM position' : 'DLMM transaction';
+  const icon = kind === 'claim' ? '/icon-claim.png' : kind === 'rebalance' ? '/icon-rebalance.png' : '/icon-claim.png';
+  const description =
+    `${ixs.length} instructions (${programNames.join(' → ')}) from the dlmm_builder plugin. ` +
+    `${nonceFirst ? 'Durable-nonce first: valid until used. ' : ''}` +
+    `Signed by your wallet (${tx.numSigners} signer). ` +
+    `No server secrets — the relay only echoes validated bytes.`;
+
+  return { title, icon, description };
 }
 
 function badRequest(msg: string): Response {

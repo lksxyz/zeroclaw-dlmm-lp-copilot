@@ -6,7 +6,8 @@
 
 A ZeroClaw agent in your Telegram that watches Meteora DLMM positions: daily
 report at 08:00, out-of-range alerts every 30 min, and on-demand `claim` /
-`rebalance` via Solana Action URL. Agent builds unsigned txs — you sign in
+`rebalance` via Solana Action URL. **The Solana work runs in two WASM plugins**
+— fetch, decode, validate, and encode — the agent only proposes, you sign in
 Phantom. No keys held.
 
 ## Who it's for
@@ -20,29 +21,46 @@ Brazilian LPs get `America/Sao_Paulo` timezone (configurable).
 - SOP engine with cron triggers (`dlmm-daily-report`, `dlmm-range-monitor`)
 - Agent-driven DM handling — Telegram DMs flow through agent runtime (ZeroClaw
   only sets `internal_sop_event` for git/forge channels)
-- Memory (position baselines, alert dedupe)
-- `http_request` tool with domain allowlist
+- Memory (position baselines, alert dedupe, pending-tx ledger)
+- **WASM tool plugins** (wit/v0 registry): `dlmm_reader` + `dlmm_builder` with
+  `http_client` + `config_read` grants, host-injected anti-spoof `__config`
 - `read_skill` sandboxing
+- `http_request` **denied** — all outbound runs in-wasm under plugin config
 
 ## What we built
 
-1. **Four skills** (`skills/meteora-*.md`): T0 read + IL math, T0 report format,
-   T1 claim tx builder, T1 rebalance tx builder with durable nonce proposal.
-2. **Self-hosted Solana Action endpoint** (`action-endpoint/`): Cloudflare Worker
-   serving GET/POST per Solana Actions spec. Encodes `claimFee` and
-   `removeLiquidity + addLiquidityByStrategy` via Meteora SDK. Wraps rebalance in
-   durable nonce. No keys, no signing — returns base64 unsigned txs only.
-   Single-operator: nonce authority = LP's wallet, rejects other signers with 403.
+1. **`plugins/dlmm-core`** — shared pure Rust core, host-testable: borsh
+   `PositionV2`/`LbPair`/`BinArray` decoding, durable-nonce helpers, claim and
+   rebalance instruction encoding, `waki` wasi:http RPC client (getAccountInfo,
+   getProgramAccounts, nonce status), and the mechanical validation rules.
+2. **`plugins/dlmm-reader`** — T0 shim: positions discovery (getProgramAccounts
+   + owner memcmp), per-position reports (range, active bin, claimable, owner
+   match), and nonce settlement-status checks for the SOP cleanup path.
+3. **`plugins/dlmm-builder`** — T1 shim: validates mechanically (ownership,
+   claimable > 0, liquidity > 0, range contains the live active bin, bin-array
+   indexes in-bounds), builds the unsigned tx with `AdvanceNonceAccount` first
+   and the **live nonce hash** as `recentBlockhash`, and returns a complete
+   `solana-action:` URL. LLM proposes — plugin verifies.
+4. **Stateless Solana Action relay** (`action-endpoint/`): Cloudflare Worker
+   with **zero secrets, zero RPC, zero SDK deps** (~150 lines). GET renders the
+   wallet preview *from the tx bytes* (instruction count, program IDs, nonce
+   first, signer); POST echoes the tx and rejects any signer ≠ fee payer with
+   403. Single-operator by construction.
+5. **Four skills** (`skills/meteora-*.md`): T0 read/report, T1 claim, T1
+   rebalance with durable-nonce settlement confirmation.
+6. **Ground-truth fixture suite** (`tools/gen-fixtures.cjs`): txs built with the
+   official `@meteora-ag/dlmm` + `@solana/web3.js` SDK, then cross-checked
+   byte-for-byte by the Rust core — `make fixtures` regenerates, CI fails on
+   drift.
 
-Skills are pure markdown. Action endpoint is the only custom code. Both
-reproducible from this repo.
+Plugins are the only code that talks to Solana. Relay is the only HTTP surface.
+Both reproducible from this repo.
 
 ## Custody tier
 
 | Operation | Tier | Secrets | Signs |
 |---|---|---|---|
-| Read / pool / price | T0 | RPC key | none |
-| Report / OOR alert / milestone | T0 | RPC key | none |
+| Read / report / alert | T0 | plugin `__config` (RPC, owner) | none |
 | Build unsigned claimFee | T1 | none | user wallet |
 | Build atomic rebalance (durable nonce) | T1 | none | user wallet |
 | Auto-compound | T2 | disabled | n/a |
@@ -56,38 +74,42 @@ no session key, no autocompound block, no sign capability. Skills have no
 **Channel = prompt-injection surface.** Agent only proposes Action URLs. User
 signs. Full adversarial transcript: `prompts/injection-tests.md` (7 scenarios).
 
-**Blockhash expiry.** Rebalance uses durable nonce — tx stays valid past 90s
-blockhash window. One nonce per concurrent pending tx.
+**No LLM outbound at all.** `http_request`, `web_fetch`, `browser`,
+`web_search_tool`, and every filesystem tool sit in
+`risk_profiles.dlmm.excluded_tools` — denied, not approval-gated. RPC calls
+happen only in-wasm under the host-injected `__config`, which strips any
+caller-supplied `__config` (anti-spoof). The builder refuses to run without
+`owner_pubkey` and rejects positions it doesn't own.
 
-**Price feed.** Jupiter Price API (public, unauthenticated). Pyth deprecated
-2026-07, Switchboard dead 2026-08.
+**Blockhash expiry.** Every proposed tx uses a durable nonce — valid past the
+90s blockhash window. One nonce per concurrent pending tx; settlement is
+verified by the nonce hash changing on-chain before a new proposal is allowed.
 
-**Third-party trust:** Jupiter (read-only), Cloudflare (worker host), Helius/RPC
-(user-supplied). Declared.
+**Third-party trust:** Jupiter (read-only price), Cloudflare (relay host),
+RPC (user-supplied, in plugin config). Declared.
 
-**Filesystem tools denied outright.** `content_search`, `glob_search`,
-`file_read`, `file_write`, `file_edit`, `data_management`, `memory_export`,
-`cron_list`, and the web tools (`web_fetch`, `browser`, `web_search_tool`,
-`weather`) sit in `risk_profiles.dlmm.excluded_tools` — not "approval-gated",
-**denied**. Approval-gating alone is bypassable when a Telegram approval is
-rushed or missed; deny-by-default removes the question. `memory_recall`
-remains (position baselines, no secrets).
+**Mechanical validation.** Ownership, claimable > 0, liquidity > 0, low < high,
+range contains the active bin, bin-array indexes inside the default bitmap —
+checked in-wasm before a single tx byte is serialized.
 
 ## What we did NOT do
 
 - No trading bot, sniping, buy recommendations
 - No raw private key — no key in the system at all
 - No concept/slideware — runs on Devnet in the video
-- No registry PR — plugin lives in this repo
-- No thin RPC wrapper in WASM — output shaped to ~200 tokens/position
+- No registry PR — plugins live in this repo (bounty rule)
+- No secrets in the relay — the worker is stateless; it can't leak what it
+  doesn't hold
 
 ## Beyond the brief
 
-- Self-hosted Action endpoint (no Dialect dependency)
-- Durable nonces (blockhash trap solved)
-- Jupiter feed (no Pyth/Switchboard dependency)
-- Filesystem + web tools **denied outright** (not just approval-gated) + 7-scenario injection suite
-- Triple-gated defense: LLM (skill rules) + Tool (denied-by-default) + Cryptographic (on-chain auth)
+- **All Solana work in WASM plugins** — the bounty's core ask (quorum/palinurus
+  pattern): fetch, decode, validate, encode, all in-wasm with anti-spoof config
+- **Solana Actions UX** — no submission pairs Blinks with an approval-gated agent
+- **Stateless relay** — preview rendered from bytes; zero secret/KV/SDK surface
+- **Durable nonces** (blockhash trap solved) for claim *and* rebalance
+- **Byte-for-byte ground truth** — independent SDK sources, regenerable, CI-checked
+- **Triple-gated defense**: LLM (skill rules) + Tool (denied-by-default) + Cryptographic (on-chain auth)
 
 ## Reproduce
 
@@ -96,23 +118,26 @@ curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/master/insta
 zeroclaw quickstart
 git clone https://github.com/lksxyz/zeroclaw-dlmm-lp-copilot
 cd zeroclaw-dlmm-lp-copilot
+
+make plugin-build            # compile dlmm_reader.wasm + dlmm_builder.wasm
+
 cp skills/*.md ~/.zeroclaw/skills/
 cp -r sops/dlmm-* ~/.zeroclaw/sops/
 cp config.example.toml ~/.zeroclaw/config.toml
-# edit ~/.zeroclaw/config.toml, fill env vars
-cd action-endpoint && npm install
-npx wrangler secret put RPC_URL
-npx wrangler secret put NONCE_ACCOUNT && npx wrangler secret put NONCE_AUTHORITY
-npx wrangler deploy
+# edit ~/.zeroclaw/config.toml — fill ${SOLANA_RPC_URL}, ${OPERATOR_WALLET_PUBKEY},
+# ${ACTION_ENDPOINT_BASE} (used by the [plugins.entries.*.config] sections)
+
+cd action-endpoint && npm install && npx wrangler deploy   # no secrets
 cd ..
 zeroclaw service install && zeroclaw service start
 ```
 
 ## Verify
 
-- Code: this repo (skills, SOPs, action endpoint, threat model — all in-tree)
-- Action endpoint: `npm test && npm run typecheck`
-- WASM plugin: `make plugin && make plugin-build`
+- Code: this repo (plugins, skills, SOPs, relay, threat model — all in-tree)
+- Ground truth: `make fixtures && make fixtures-check` (byte-for-byte)
+- Plugins: `make plugin` (16 core + 9 reader + 10 builder host tests)
+- Relay: `npm test && npm run typecheck` (4 tests, parse-vs-fixture)
 - Config: `make validate`
 - Demo: `showcase/demo-transcript.md` (exact Devnet command sequence)
 - Injection: `prompts/injection-tests.md` (7 scenarios, expected behavior per scenario)

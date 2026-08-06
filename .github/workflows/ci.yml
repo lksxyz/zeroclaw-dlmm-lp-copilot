@@ -28,12 +28,42 @@ jobs:
       - name: install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: cargo test (host) — plugin pure core
+      - name: cargo test (host) — dlmm-core
+        working-directory: plugins/dlmm-core
+        run: cargo test --locked
+
+      - name: cargo test (host) — dlmm-reader
         working-directory: plugins/dlmm-reader
         run: cargo test --locked
 
-  worker-typecheck:
-    name: worker-typecheck
+      - name: cargo test (host) — dlmm-builder
+        working-directory: plugins/dlmm-builder
+        run: cargo test --locked
+
+  fixtures:
+    name: fixtures-reproducible
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: install fixture tool deps
+        working-directory: tools
+        run: npm install
+
+      - name: regenerate fixtures from SDK sources
+        working-directory: tools
+        run: node gen-fixtures.cjs
+
+      - name: fixtures.json must be byte-identical
+        working-directory: plugins/dlmm-core
+        run: git diff --exit-code -- tests/fixtures.json
+
+  worker:
+    name: worker-relay
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,3 +79,7 @@ jobs:
       - name: tsc --noEmit
         working-directory: action-endpoint
         run: npx tsc --noEmit
+
+      - name: relay tests
+        working-directory: action-endpoint
+        run: npm test

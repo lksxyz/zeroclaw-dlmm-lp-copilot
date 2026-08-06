@@ -5,26 +5,42 @@ help: ## list targets
 
 # ---- validate ------------------------------------------------------------
 .PHONY: validate
-validate: ## parse all TOML, check skill frontmatter, run plugin tests
+validate: ## parse all TOML, check skill frontmatter, test all plugin crates, typecheck worker
 	@./scripts/validate-config.sh
 	@./scripts/validate-skills.sh
+	@cd plugins/dlmm-core && cargo test --locked --quiet
 	@cd plugins/dlmm-reader && cargo test --locked --quiet
+	@cd plugins/dlmm-builder && cargo test --locked --quiet
+	@cd action-endpoint && npx tsc --noEmit
 
 # ---- plugin --------------------------------------------------------------
 .PHONY: plugin plugin-build plugin-test
-plugin: ## cargo test on the dlmm-reader plugin (host, no wasm toolchain)
+plugin: ## cargo test on all plugin crates (host, no wasm toolchain)
+	cd plugins/dlmm-core && cargo test --locked
 	cd plugins/dlmm-reader && cargo test --locked
+	cd plugins/dlmm-builder && cargo test --locked
 
-plugin-build: ## build dlmm-reader for wasm32-wasip2 (needs rustup target)
+plugin-build: ## build reader + builder for wasm32-wasip2 (needs rustup target)
 	rustup target add wasm32-wasip2
 	cd plugins/dlmm-reader && cargo build --locked --target wasm32-wasip2 --release
 	cp plugins/dlmm-reader/target/wasm32-wasip2/release/dlmm_reader.wasm plugins/dlmm-reader/
+	cd plugins/dlmm-builder && cargo build --locked --target wasm32-wasip2 --release
+	cp plugins/dlmm-builder/target/wasm32-wasip2/release/dlmm_builder.wasm plugins/dlmm-builder/
 
 plugin-test: ## same as `make plugin`
 	$(MAKE) plugin
 
+# ---- fixtures ------------------------------------------------------------
+.PHONY: fixtures fixtures-check
+fixtures: ## regenerate ground-truth fixtures from independent SDK sources
+	cd tools && node gen-fixtures.cjs
+
+fixtures-check: ## regenerate and fail if plugins/dlmm-core/tests/fixtures.json drifts
+	cd tools && node gen-fixtures.cjs
+	cd plugins/dlmm-core && git diff --exit-code -- tests/fixtures.json
+
 # ---- worker (action endpoint) -------------------------------------------
-.PHONY: worker-install worker-dev worker-deploy worker-typecheck
+.PHONY: worker-install worker-dev worker-deploy worker-typecheck worker-test
 worker-install: ## npm install in the action-endpoint
 	cd action-endpoint && npm install
 
@@ -36,6 +52,9 @@ worker-deploy: ## wrangler deploy — needs CLOUDFLARE_API_TOKEN
 
 worker-typecheck: ## tsc --noEmit
 	cd action-endpoint && npx tsc --noEmit
+
+worker-test: ## relay tests (node --test)
+	cd action-endpoint && npm test
 
 # ---- demo ----------------------------------------------------------------
 .PHONY: demo

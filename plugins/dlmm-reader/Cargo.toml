@@ -2,34 +2,28 @@
 name = "dlmm-reader"
 version = "0.1.0"
 edition = "2021"
-# License is MIT to match the repo's top-level LICENSE (the bounty requires
-# "MIT license" on plugin code). Apache-2.0 is dual here for safety but the
-# authoritative file is the repo root LICENSE = MIT.
+# MIT matches the repo root LICENSE (bounty requires MIT on plugin code).
 license = "MIT"
-description = "ZeroClaw WIT plugin: read Meteora DLMM positions and emit a shaped, ~200-token per-position summary."
+description = "ZeroClaw WIT tool plugin: fetch Meteora DLMM positions + durable-nonce settlement status in-wasm (waki), decode, validate mechanically, and emit a shaped report."
 publish = false
 
-# Pinned against ZeroClaw runtime 0.8.4. See wit/world.wit for the full
-# pinning assumptions note; cargo build uses --locked so Cargo.lock is the
-# authoritative resolver and prevents drift across machines.
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+# Shared pure core: decode, nonce helpers, PDA, tx building, mechanical
+# validation, waki JSON-RPC. Wasm-only deps live in dlmm-core's cfg section.
+dlmm-core = { path = "../dlmm-core" }
+solana-pubkey = { version = "2" }
+
+# Pinned against ZeroClaw runtime 0.8.4. See wit/UPSTREAM_REF.md; cargo build
+# uses --locked so Cargo.lock is the authoritative resolver.
 wit-bindgen = "0.46"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# pure core deps — also used by host tests
-borsh = { version = "1", features = ["derive"] }
-solana-pubkey = { version = "2", features = ["borsh"] }
-solana-instruction = "2"
-
-# wasm-only deps (shaping step)
-base64 = "0.22"
-
 [dev-dependencies]
-borsh = { version = "1", features = ["derive"] }
+base64 = "0.22"
 
 [profile.release]
 opt-level = "s"

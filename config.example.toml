@@ -50,21 +50,22 @@ quickstart_completed = true
 
 # ---------- risk profiles ----------
 # `dlmm` is the only profile the agent uses. It is the *deny-by-default* shape:
-# filesystem + web tools are excluded outright; only read-only/data-pipe tools
-# are auto-approved. This is stronger than approval-gating because a missed
-# approval on Telegram can't leak `.env`, `~/.ssh`, or run browser code.
+# filesystem + web tools are excluded outright, and so is `http_request` — ALL
+# outbound traffic goes through the dlmm-reader/dlmm-builder plugins (their
+# `http_client` grant is host-scoped and their config is host-injected, so the
+# LLM cannot redirect the RPC or the relay).
 #
 # Mirrors the live operator config and survives a misconfigured quickstart.
 [risk_profiles.dlmm]
 level                            = "supervised"
 require_approval_for_medium_risk = false
 auto_approve                     = [
-    "http_request",
     "send_message_to_peer",
     "read_skill",
     "memory_recall",
 ]
 excluded_tools = [
+    "http_request",
     "content_search",
     "glob_search",
     "file_read",
@@ -126,21 +127,10 @@ backend     = "sqlite.sqlite"
 search_mode = "bm25"
 
 # ---------- skills ----------
+# RPC access, the relay base URL, the nonce, and the operator wallet moved
+# into the plugin sections below — the skills only keep SOP thresholds.
 [skills.meteora]
-rpc_url              = "${SOLANA_RPC_URL}"
-rpc_url_backup       = "${SOLANA_RPC_URL_BACKUP}"
-meteora_api          = "https://dlmm-api.meteora.ag"
-dlmm_program         = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSK9q8Mfev5Rq"
-wallet_pubkey        = "${OPERATOR_WALLET_PUBKEY}"
-report_chat_id       = "${TELEGRAM_CHAT_ID}"
-action_endpoint_base = "${ACTION_ENDPOINT_BASE}"
-nonce_account        = "${DURABLE_NONCE_ACCOUNT}"
-nonce_authority      = "${OPERATOR_WALLET_PUBKEY}"
-
-[skills.meteora.prices]
-jupiter_price_api = "https://api.jup.ag/price/v2"
-feed_sol_id       = "So11111111111111111111111111111111111111112"
-usdc_usd          = 1.0
+report_chat_id = "${TELEGRAM_CHAT_ID}"
 
 [skills.meteora.thresholds]
 out_of_range_alert  = true
@@ -164,12 +154,26 @@ kind = "cron"
 expr = "*/30 * * * *"
 tz   = "America/Sao_Paulo"
 
-# ---------- http_request ----------
-# ZeroClaw http_request only supports the `Authorization: Bearer` header.
-# Helius needs `x-api-key`, so the key rides in the RPC URL query string —
-# not in this secrets block. The allowlist restricts outbound calls to the
-# three hosts the operator actually trusts.
-[http_request]
-allowed_domains = ["mainnet.helius-rpc.com", "api.jup.ag", "dlmm-api.meteora.ag"]
+# ---------- plugins ----------
+# The whole Solana surface lives in the two WASM plugins. `http_request` is
+# excluded above, so these sections are the ONLY outbound path in the agent.
+#
+# The host injects each entry's `config` map into the tool's execute args
+# under the reserved `__config` key (gated by the manifest's `config_read`
+# permission); caller-supplied `__config` is stripped, so the LLM can't
+# redirect the RPC, change the signer wallet, or point at a different relay.
+# The first entry must be hand-added — `zeroclaw config set` can't
+# materialize a plugins.entries node for a freshly installed plugin.
+[plugins]
+enabled = true
 
-[http_request.secrets]
+[plugins.entries.dlmm-reader.config]
+rpc_url       = "${SOLANA_RPC_URL}"
+owner_pubkey  = "${OPERATOR_WALLET_PUBKEY}"
+dlmm_program  = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSK9q8Mfev5Rq"
+
+[plugins.entries.dlmm-builder.config]
+rpc_url       = "${SOLANA_RPC_URL}"
+owner_pubkey  = "${OPERATOR_WALLET_PUBKEY}"
+base_url      = "${ACTION_ENDPOINT_BASE}"
+dlmm_program  = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSK9q8Mfev5Rq"

@@ -66,8 +66,39 @@ and have it running before bed.
 ### 2026-08-06 — final polish
 Replaced every `<you>` placeholder with the real repo URL. Added the Discord
 invite. Reconciled the threat model wording with the actual config (denied,
-not gated). Pinned `wit-bindgen = 0.46.0` and added the assumptions note to
-`wit/world.wit`. Ready to post.
+not gated). Pinned `wit-bindgen = 0.46.0` and moved to the official `wit/v0`
+registry (tool.wit, logging.wit, types.wit, plugin-info.wit — no custom
+world). Ready to post.
+#ZeroClawBounty 🦞
+
+### 2026-08-06 — all Solana work moved into WASM plugins
+The bounty is "build Solana-native plugins" — so the plugins now do the
+Solana: dlmm-reader fetches RPC in-wasm (waki wasi:http), decodes PositionV2,
+discovers positions; dlmm-builder validates mechanically and encodes claim /
+rebalance txs with a durable nonce. `http_request` is DENIED — the LLM has no
+outbound at all. RPC/owner come from a host-injected anti-spoof `__config`.
+#ZeroClawBounty 🦞
+
+### 2026-08-06 — stateless Action relay
+The Cloudflare Worker is now a pure relay: the plugin's tx rides in the URL
+path, the worker renders the Phantom preview from the bytes and echoes the tx
+back. Zero secrets, zero RPC, zero SDK deps. Nothing to leak, nothing to
+rotate. `wrangler deploy` with no bindings.
+#ZeroClawBounty 🦞
+
+### 2026-08-06 — byte-for-byte ground truth
+tx_claim + tx_rebalance built with the official @meteora-ag/dlmm + web3.js
+SDK, cross-checked byte-for-byte by the Rust core (16 tests). Generator is
+in-repo (tools/gen-fixtures.cjs): `make fixtures-check` regenerates and CI
+fails on drift. The plugin's output is provably the SDK's output.
+#ZeroClawBounty 🦞
+
+### 2026-08-06 — suite at 39 tests, all green
+16 core (decode/validation/nonce/tx-encoding vs fixture) + 9 reader + 10
+builder + 4 relay parse tests. `make validate` covers all of it + tsc +
+config + skills. Injection suite (7 scenarios) re-verified against the new
+plugin flow: "rebalance someone else's position" → ownership check rejects;
+"RPC dibelokkan" → __config anti-spoof.
 #ZeroClawBounty 🦞
 
 ---
@@ -84,3 +115,7 @@ not gated). Pinned `wit-bindgen = 0.46.0` and added the assumptions note to
 | 2026-08-05 — WASM plugin bonus | — | — |
 | 2026-08-05 — reproducible | — | — |
 | 2026-08-06 — final polish | — | — |
+| 2026-08-06 — all Solana work moved into WASM plugins | — | — |
+| 2026-08-06 — stateless Action relay | — | — |
+| 2026-08-06 — byte-for-byte ground truth | — | — |
+| 2026-08-06 — suite at 39 tests, all green | — | — |

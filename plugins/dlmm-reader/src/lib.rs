@@ -1,91 +1,218 @@
-//! ZeroClaw plugin: read Meteora DLMM positions and return a shaped,
-//! ~200-token-per-position summary.
+//! ZeroClaw WIT tool plugin: fetch Meteora DLMM positions + durable-nonce
+//! settlement status **in-wasm** (waki), decode, and emit a shaped report.
 //!
 //! ## Structure
 //!
-//! - `decoder` — pure core, always compiled. Host-testable.
-//! - wasm entry point (behind `#[cfg(target_family = "wasm")]`) — `Guest::execute`
-//!   deserialises args, calls `decoder::decode_position` + `decoder::shape`, and
-//!   returns a JSON array of `PositionSummary`.
+//! - `shape` — pure shaping (host-testable): args parsing, report/status
+//!   shaping from decoded values.
+//! - wasm entry (behind `#[cfg(target_family = "wasm")]`) — `execute` parses
+//!   args, fetches accounts via `dlmm_core::rpc` (waki), decodes with
+//!   `dlmm_core::decoder`, and shapes the result.
 //!
-//! The heavy lifting (RPC fetch, pool state, Jupiter price read) is done by the
-//! *host* (the agent, via skill markdown + built-in `http_request`). The plugin
-//! is the *shaping* step that fits the model context.
+//! ## Security model
+//!
+//! The RPC endpoint and owner pubkey come from the plugin config section,
+//! which the host injects as `__config` (caller-supplied values are
+//! stripped). The LLM can only pick which positions to read — it cannot
+//! redirect the RPC endpoint.
+//!
+//! Modes:
+//!   * `positions` — discovery: all PositionV2 accounts owned by
+//!     `__config.owner_pubkey` (id, pool, range). Replaces the old
+//!     `getProgramAccounts` http_request flow now that http_request is denied.
+//!   * `report` — per-position: range, active bin, in/out of range,
+//!     claimable fees (raw + human + USD via Jupiter), owner match.
+//!   * `status` — durable-nonce settlement: did the stored blockhash change
+//!     since `previous_nonce_hash`? (SOP cleanup evidence.)
 
-pub mod decoder;
-
-#[cfg(target_family = "wasm")]
-use crate::exports::zeroclaw::tool::plugin::Guest;
-#[cfg(target_family = "wasm")]
-use serde::Deserialize;
-#[cfg(target_family = "wasm")]
-use wit_bindgen::generate;
-
-#[cfg(target_family = "wasm")]
-export!(Component);
-
-#[cfg(target_family = "wasm")]
-generate!({
-    world: "tool-plugin",
-    path: "wit",
-});
+pub mod shape;
 
 #[cfg(target_family = "wasm")]
-#[derive(Deserialize)]
-struct Args {
-    positions_b64: Vec<String>,
-    sol_usd: f64,
-    active_bin_by_position: Vec<(String, i32)>,
-    entry_value_usd_by_position: Vec<(String, f64)>,
-    hodl_value_usd_by_position: Vec<(String, f64)>,
-    fees_24h_by_position: Vec<(String, f64)>,
-    fees_7d_by_position: Vec<(String, f64)>,
-    pair_label_by_position: Vec<(String, String)>,
-    id_label_by_position: Vec<(String, String)>,
-}
+mod component {
+    use super::shape::{shape_discovery, shape_report, shape_status, Args};
+    use dlmm_core::decoder::{decode_lb_pair, decode_position};
+    use dlmm_core::rpc::{get_jupiter_price, RpcClient};
+    use serde_json::json;
 
-#[cfg(target_family = "wasm")]
-struct Component;
+    /// Default DLMM program for discovery: devnet. Operators pin their own via
+    /// `__config.dlmm_program`.
+    const DEFAULT_DLMM_PROGRAM: &str = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo";
 
-#[cfg(target_family = "wasm")]
-impl Guest for Component {
-    fn execute(args: String) -> Result<String, String> {
-        let args: Args = serde_json::from_str(&args).map_err(|e| format!("bad args: {e}"))?;
+    wit_bindgen::generate!({
+        world: "tool-plugin",
+        path: "wit",
+        features: ["plugins-wit-v0"],
+    });
 
-        let mut summaries: Vec<decoder::PositionSummary> = Vec::with_capacity(args.positions_b64.len());
+    use exports::zeroclaw::plugin::plugin_info::Guest as PluginInfo;
+    use exports::zeroclaw::plugin::tool::{Guest as Tool, ToolResult};
 
-        for (i, b64) in args.positions_b64.iter().enumerate() {
-            use base64::Engine as _;
-            let data = base64::engine::general_purpose::STANDARD
-                .decode(b64)
-                .map_err(|e| format!("bad base64 at position {i}: {e}"))?;
+    struct DlmmReader;
 
-            let position = decoder::decode_position(&data)
-                .map_err(|e| format!("bad position at {i}: {e}"))?;
-
-            let active_bin_id = args.active_bin_by_position.get(i).map(|(_, b)| *b).unwrap_or(0);
-            let entry_value = args.entry_value_usd_by_position.get(i).map(|(_, v)| *v).unwrap_or(0.0);
-            let hodl_value = args.hodl_value_usd_by_position.get(i).map(|(_, v)| *v).unwrap_or(0.0);
-            let fees_24h = args.fees_24h_by_position.get(i).map(|(_, v)| *v).unwrap_or(0.0);
-            let fees_7d = args.fees_7d_by_position.get(i).map(|(_, v)| *v).unwrap_or(0.0);
-            let pair_label = args.pair_label_by_position.get(i).map(|(_, l)| l.as_str()).unwrap_or("?");
-            let id_label = args.id_label_by_position.get(i).map(|(_, l)| l.as_str()).unwrap_or("?");
-
-            let summary = decoder::shape(
-                &position,
-                args.sol_usd,
-                active_bin_id,
-                entry_value,
-                hodl_value,
-                fees_24h,
-                fees_7d,
-                pair_label,
-                id_label,
-            );
-
-            summaries.push(summary);
+    impl PluginInfo for DlmmReader {
+        fn plugin_name() -> String {
+            "dlmm-reader".to_string()
         }
 
-        serde_json::to_string(&summaries).map_err(|e| format!("serialize: {e}"))
+        fn plugin_version() -> String {
+            env!("CARGO_PKG_VERSION").to_string()
+        }
     }
+
+    impl Tool for DlmmReader {
+        fn name() -> String {
+            "dlmm_reader".to_string()
+        }
+
+        fn description() -> String {
+            "Fetch Meteora DLMM positions and durable-nonce settlement status. \
+             mode=positions: discover positions owned by the configured wallet. \
+             mode=report: read positions (range, in-range, claimable fees in USD, owner match). \
+             mode=status: check whether the nonce hash changed (pending tx settled)."
+                .to_string()
+        }
+
+        fn parameters_schema() -> String {
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "enum": ["positions", "report", "status"],
+                        "description": "positions: discover owned positions; report: position summaries; status: nonce settlement check."
+                    },
+                    "position_ids": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "DLMM PositionV2 account addresses (mode=report)."
+                    },
+                    "nonce_address": {
+                        "type": "string",
+                        "description": "Durable nonce account address (mode=status)."
+                    },
+                    "previous_nonce_hash": {
+                        "type": "string",
+                        "description": "Last recorded nonce hash (mode=status; settlement evidence)."
+                    }
+                },
+                "required": ["mode"]
+            })
+            .to_string()
+        }
+
+        fn execute(args: String) -> Result<ToolResult, String> {
+            let args: Args = serde_json::from_str(&args).map_err(|e| format!("bad args: {e}"))?;
+            let config = args.config.as_ref().ok_or("missing __config (config_read permission?)")?;
+            if config.rpc_url.is_empty() {
+                return Err("__config.rpc_url is empty — configure the plugin section".to_string());
+            }
+            let rpc = RpcClient::new(config.rpc_url.clone());
+            let owner = config.owner_pubkey.as_deref();
+
+            let out = match args.mode.as_str() {
+                "positions" => positions_mode(&rpc, &args, owner)?,
+                "report" => report_mode(&rpc, &args, owner)?,
+                "status" => status_mode(&rpc, &args)?,
+                other => {
+                    return Err(format!(
+                        "unknown mode: {other} (expected positions|report|status)"
+                    ))
+                }
+            };
+
+            Ok(ToolResult {
+                success: true,
+                output: out,
+                error: None,
+            })
+        }
+    }
+
+    /// mode=positions: discover all PositionV2 accounts owned by the
+    /// configured operator wallet (getProgramAccounts with an owner memcmp).
+    fn positions_mode(
+        rpc: &RpcClient,
+        args: &Args,
+        owner: Option<&str>,
+    ) -> Result<String, String> {
+        let owner = owner
+            .ok_or("mode=positions requires __config.owner_pubkey (position discovery is by owner)")?;
+        let owner_key: solana_pubkey::Pubkey = owner
+            .parse()
+            .map_err(|_| format!("bad owner_pubkey: {owner}"))?;
+        let program = match args.config.as_ref().and_then(|c| c.dlmm_program.as_deref()) {
+            Some(p) => p
+                .parse()
+                .map_err(|_| format!("bad dlmm_program: {p}"))?,
+            None => DEFAULT_DLMM_PROGRAM
+                .parse()
+                .map_err(|e| format!("bad default dlmm_program: {e}"))?,
+        };
+
+        // PositionV2: 8120 bytes, owner pubkey at offset 40 (8 discriminator +
+        // 32 lb_pair).
+        let accounts = rpc
+            .get_program_accounts(&program, 8120, 40, owner_key.as_ref())
+            .map_err(|e| format!("position discovery: {e}"))?;
+
+        let mut positions = Vec::with_capacity(accounts.len());
+        for (id, data) in accounts {
+            let pos = decode_position(&data)
+                .map_err(|e| format!("position {id} decode: {e}"))?;
+            positions.push(shape_discovery(&id.to_string(), &pos));
+        }
+        Ok(serde_json::to_string(&json!({ "positions": positions }))
+            .map_err(|e| format!("serialize: {e}"))?)
+    }
+
+    /// mode=report: fetch + decode each position, shape a compact summary.
+    fn report_mode(rpc: &RpcClient, args: &Args, owner: Option<&str>) -> Result<String, String> {
+        if args.position_ids.is_empty() {
+            return Err("mode=report requires position_ids".to_string());
+        }
+        let mut reports = Vec::with_capacity(args.position_ids.len());
+        for id in &args.position_ids {
+            let pos_key: solana_pubkey::Pubkey = id
+                .parse()
+                .map_err(|_| format!("bad position id: {id}"))?;
+
+            let pos = decode_position(
+                &rpc.get_account_info(&pos_key)?
+                    .ok_or_else(|| format!("position not found: {id}"))?,
+            )
+            .map_err(|e| format!("position {id} decode: {e}"))?;
+
+            let lb = decode_lb_pair(
+                &rpc.get_account_info(&pos.lb_pair)?
+                    .ok_or_else(|| format!("pool not found: {}", pos.lb_pair))?,
+            )
+            .map_err(|e| format!("pool {} decode: {e}", pos.lb_pair))?;
+
+            // Jupiter prices + mint decimals for a USD estimate.
+            let price_x = get_jupiter_price(&lb.token_x_mint).ok();
+            let price_y = get_jupiter_price(&lb.token_y_mint).ok();
+            let dec_x = rpc.get_mint_decimals(&lb.token_x_mint).unwrap_or(9);
+            let dec_y = rpc.get_mint_decimals(&lb.token_y_mint).unwrap_or(9);
+
+            reports.push(shape_report(id, &pos, &lb, owner, price_x, price_y, dec_x, dec_y));
+        }
+        Ok(serde_json::to_string(&json!({ "positions": reports }))
+            .map_err(|e| format!("serialize: {e}"))?)
+    }
+
+    /// mode=status: current nonce hash + settlement vs previous.
+    fn status_mode(rpc: &RpcClient, args: &Args) -> Result<String, String> {
+        let nonce = args
+            .nonce_address
+            .as_ref()
+            .ok_or("mode=status requires nonce_address")?;
+        let nonce_key: solana_pubkey::Pubkey = nonce
+            .parse()
+            .map_err(|_| format!("bad nonce address: {nonce}"))?;
+        let current = rpc.get_nonce_hash(&nonce_key)?;
+        let out = shape_status(nonce, &current, args.previous_nonce_hash.as_deref());
+        Ok(serde_json::to_string(&out).map_err(|e| format!("serialize: {e}"))?)
+    }
+
+    export!(DlmmReader);
 }

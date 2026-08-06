@@ -21,35 +21,41 @@ solana airdrop 5 $(solana-keygen pubkey /tmp/lp-wallet.json) --url devnet
 #      #4822 JUP/USDC  (bin_step=10, range 8500..8600)  ← we'll push this OOR
 ```
 
-## Hour 0 — deploy the worker
+## Hour 0 — build plugins + deploy the relay
 
 ```bash
-cd action-endpoint
-npm install
-echo "<your-devnet-rpc-url>" | wrangler secret put RPC_URL
-echo "<operator-wallet-pubkey>" | wrangler secret put NONCE_AUTHORITY
-# Optional: create a nonce account on devnet and put its pubkey here too
+# 1. Build the two WASM plugins (reader + builder)
+make plugin-build
+# → plugins/dlmm-reader/dlmm_reader.wasm + plugins/dlmm-builder/dlmm_builder.wasm
+
+# 2. Create a durable nonce account on Devnet (authority = operator wallet)
 solana create-nonce-account /tmp/nonce.json 0.0015 $(solana-keygen pubkey /tmp/lp-wallet.json) --url devnet
 NONCE_PUBKEY=$(solana-keygen pubkey /tmp/nonce.json)
-echo "$NONCE_PUBKEY" | wrangler secret put NONCE_ACCOUNT
+
+# 3. Deploy the stateless relay — no secrets, no bindings
+cd action-endpoint
+npm install
 wrangler deploy
 # → https://dlmm-lp-copilot.<your-cloudflare-subdomain>.workers.dev
 #   (the <subdomain> is operator-specific; capture it for the Discord post)
 ```
 
-## Hour 0 — install ZeroClaw + skills + SOPs
+## Hour 0 — install ZeroClaw + skills + SOPs + plugin config
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/master/install.sh | bash
 zeroclaw quickstart   # pick Anthropic, name=dlmm-copilot
 
-mkdir -p ~/.zeroclaw/skills ~/.zeroclaw/sops
+mkdir -p ~/.zeroclaw/skills ~/.zeroclaw/sops ~/.zeroclaw/plugins
 cp /path/to/dlmm-lp-copilot/skills/*.md  ~/.zeroclaw/skills/
 cp -r /path/to/dlmm-lp-copilot/sops/dlmm-*  ~/.zeroclaw/sops/
+cp plugins/dlmm-reader/dlmm_reader.wasm plugins/dlmm-builder/dlmm_builder.wasm ~/.zeroclaw/plugins/
 
 cp /path/to/dlmm-lp-copilot/config.example.toml  ~/.zeroclaw/config.toml
-# edit and fill in the env vars. Use a non-bip39 passphrase for the wallet
-# in this test.
+# edit and fill the env vars. In the [plugins.entries.*.config] sections set:
+#   SOLANA_RPC_URL  = your devnet RPC
+#   OPERATOR_WALLET_PUBKEY = $(solana-keygen pubkey /tmp/lp-wallet.json)
+#   ACTION_ENDPOINT_BASE = https://dlmm-lp-copilot.<your-subdomain>.workers.dev
 
 # Talk to @BotFather, create a bot, capture the token.
 echo "<bot-token>" | zeroclaw secret set TELEGRAM_BOT_TOKEN
@@ -100,7 +106,8 @@ From the Telegram chat:
 rebalance #4822 wide
 ```
 
-The agent should reply with the prepared Action URL. Tap it. Phantom opens
+The agent should reply with the prepared Action URL
+(`solana-action:https://<relay>/tx/<b64url>`). Tap it. Phantom opens
 (if installed) and shows the 3-instruction transaction. Tap **Approve**.
 
 Within a few seconds:
@@ -123,7 +130,10 @@ The transaction contains exactly three instructions:
 2. `removeLiquidity` (DLMM program)
 3. `addLiquidityByStrategy` (DLMM program)
 
-After confirmation, position #4822 should show the new bin range.
+After confirmation, position #4822 should show the new bin range. The nonce
+hash on `$NONCE_PUBKEY` has advanced — the agent's next settlement check
+(`dlmm_reader {"mode":"status",...}`) sees `settled: true` and clears its
+pending-tx ledger.
 
 ## Trigger a fee claim
 
@@ -159,12 +169,10 @@ wrangler delete dlmm-lp-copilot-action-endpoint
 
 ## Optional: mainnet smoke test
 
-After the Devnet demo, point at mainnet:
-
-```bash
-echo "<mainnet-rpc-url>" | wrangler secret put RPC_URL
-wrangler deploy
-```
+After the Devnet demo, point at mainnet: change `SOLANA_RPC_URL` in
+`~/.zeroclaw/config.toml` (plugin config section) to a mainnet RPC and restart
+the service. **No worker redeploy, no secrets to rotate** — the relay is
+address-agnostic by design.
 
 The same SOPs and skills work. Open a real position with a small amount
 (e.g. $20 in SOL/USDC) and let the agent run the daily report for a week
@@ -173,8 +181,8 @@ to validate the "I run it every day" criterion of the bounty.
 ## What to keep in the showcase write-up
 
 - The two position addresses (Devnet)
-- The worker URL (or redacted if you prefer)
-- The wrangler tail showing the three real instructions
+- The relay URL (or redacted if you prefer)
+- The wrangler tail showing `GET /tx/<b64url>` → preview, `POST` → echo
 - The Phantom screenshot
 - The Telegram confirm message
 - The fail-closed refusal

@@ -7,42 +7,53 @@ starter-kit manual.
 ## Mental model
 
 ```
-ZeroClaw runtime (Telegram, SOPs, memory, http)
-   ↓ reads
-skills/*.md           — what the LLM knows how to do
-   ↓ scheduled by
-sops/dlmm-*/          — cron SOPs: SOP.toml + SOP.md
-   ↓ outbound
-http_request + memory — agent's only tools
-   ↓ proposes
-action-endpoint/      — Solana Action server
+ZeroClaw runtime (Telegram, SOPs, memory)
+   ↓ tool calls (in-wasm, host-injected __config)
+plugins/<protocol>-reader     plugins/<protocol>-builder
+  fetch + decode in-wasm        validate mechanically + encode tx
+   ↓ propose
+solana-action:<relay>/tx/<b64>  →  action-endpoint/ (stateless relay:
+                                  preview from bytes, echo, no secrets)
    ↓ signs
-Phantom / Solflare    — agent never holds a key
+Phantom / Solflare            — agent never holds a key
 ```
 
 If the agent must NOT hold a key, this shape fits. If it must sign, use
 Subscriptions & Allowances (T2) instead.
 
+Key rule: **the LLM has no outbound tools** (`http_request` etc. sit in
+`excluded_tools`). All Solana traffic runs in plugins under an anti-spoof
+`__config` injected by the host from `[plugins.entries.<name>.config]` — the
+model can't redirect the RPC or read secrets it wasn't granted.
+
 ## Copy verbatim
 
-- `config.example.toml` — risk profile shape, SOP triggers, memory config
+- `config.example.toml` — risk profile shape, SOP triggers, plugin sections
+  (`[plugins.entries.*.config]`), `excluded_tools` list
+- `plugins/dlmm-core/` — pure core pattern (host-testable Rust, no wasm in tests)
+- `plugins/dlmm-reader/` + `plugins/dlmm-builder/` — T0/T1 shim pattern
+  (wit/v0 registry, `http_client` + `config_read`, parameters-schema)
 - `sops/dlmm-daily-report/` + `sops/dlmm-range-monitor/` — cron SOP pattern
 - `prompts/injection-tests.md` — scenario template (Threat → Expected → Why falls closed)
-- `action-endpoint/` — Worker GET/POST handlers, CORS plumbing. Replace `dlmm.ts`.
+- `action-endpoint/` — stateless relay (preview + echo). No secrets to rotate.
+- `tools/gen-fixtures.cjs` + `tools/package.json` — ground-truth generator
+  pattern (independent SDK sources, `make fixtures-check` fails on drift)
 
 ## Change for a new protocol
 
 - `skills/meteora-*.md` → `skills/<protocol>-*.md` (read → shape → format/build → return Action URL)
-- `action-endpoint/src/dlmm.ts` → `action-endpoint/src/<protocol>.ts`
 - `plugins/dlmm-reader/` → `plugins/<protocol>-reader/` (pure core + shim + host tests)
+- `plugins/dlmm-builder/` → `plugins/<protocol>-builder/` (validate + encode → Action URL)
+- `config.example.toml` — plugin entries + config sections
 - `SUBMISSION.md` + `showcase/` → your story
 
 ## Leave alone
 
 - **T0/T1 split.** Bounty's sweet spot. T2 = sketch in prompts/ first.
-- **Custody model.** Agent holds RPC key only. No session keys without T2 design doc.
+- **Custody model.** Plugins hold the config, not the keys. No session keys without T2 design doc.
 - **Prompt-injection discipline.** Every fund path = test in `prompts/injection-tests.md`.
 - **Durable nonce** for any T1 path going through approval queues.
+- **Deny-by-default.** No outbound tool for the LLM; plugin-only traffic.
 
 ## Files for a new use case
 
@@ -51,19 +62,21 @@ Subscriptions & Allowances (T2) instead.
 | New channel | `channels.*` in config; upstream has Discord, Matrix, etc. |
 | New skill | `skills/<name>.md` (frontmatter: name/version/custody/summary) |
 | New SOP | `sops/<name>/SOP.toml` + `SOP.md` |
-| New tx builder | `action-endpoint/src/<protocol>.ts`, import in `index.ts` |
-| New plugin (Tier 3) | `plugins/<name>/` (Cargo.toml, manifest.toml, src/) |
+| New tx builder | `plugins/<protocol>-builder/` (shim + manifest + parameters-schema) |
+| New reader | `plugins/<protocol>-reader/` (same shape) |
 | Injection test | Append to `prompts/injection-tests.md` |
 
 ## Makefile targets
 
 ```bash
 make help          # list targets
-make validate      # TOML parse + skill frontmatter + cargo check
-make plugin        # cargo test dlmm-reader
-make plugin-build  # compile dlmm_reader.wasm (gitignored)
+make validate      # TOML parse + skill frontmatter + all plugin tests + worker typecheck
+make plugin        # cargo test dlmm-core + dlmm-reader + dlmm-builder
+make plugin-build  # compile both .wasm (gitignored)
+make fixtures      # regenerate ground-truth fixtures from SDK sources
+make fixtures-check# regenerate and fail on drift
 make worker-dev    # wrangler dev
-make worker-dep    # wrangler deploy
+make worker-deploy # wrangler deploy (no secrets)
 make demo          # end-to-end Devnet
 ```
 
@@ -77,7 +90,7 @@ make demo          # end-to-end Devnet
 
 1. `git init`, copy files
 2. Replace `meteora-*` with your protocol name
-3. Re-author SOPs + skills
+3. Re-author SOPs + skills + plugin manifests
 4. Add ≥ 3 injection scenarios per fund-moving path
-5. `make validate` until clean
+5. `make validate && make fixtures-check` until clean
 6. Write your own `SUBMISSION.md`
