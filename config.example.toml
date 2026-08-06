@@ -16,15 +16,21 @@
 schema_version = 3
 
 # ---------- providers ----------
-[providers.models.anthropic.copilot]
-model    = "claude-sonnet-4-5"
-api_key  = "${ANTHROPIC_API_KEY}"
+# LLM via OpenRouter (prepaid, no direct Anthropic key needed).
+# Pick a model id from https://openrouter.ai/models (a `:free` suffix variant
+# also exists). Alternative direct-API shape:
+#   [providers.models.anthropic.copilot]
+#   model    = "claude-sonnet-4-5"
+#   api_key  = "${ANTHROPIC_API_KEY}"
+[providers.models.openrouter.copilot]
+model   = "anthropic/claude-sonnet-4-5"
+api_key = "${OPENROUTER_API_KEY}"
 
 # ---------- agents ----------
 [agents.dlmm_copilot]
 channels        = ["telegram.dlmm_copilot"]
 risk_profile    = "dlmm"
-model_provider  = "anthropic.copilot"
+model_provider  = "openrouter.copilot"
 runtime_profile = "copilot"
 skill_bundles   = ["meteora"]
 

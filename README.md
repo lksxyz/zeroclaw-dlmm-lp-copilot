@@ -64,6 +64,10 @@ BUILD_LOG.md      # Build-in-public milestones (X tiebreak source)
 
 ## Quick start
 
+> Running this on a clean VPS (Rocky Linux) with OpenRouter as the LLM
+> provider? Follow [`DEPLOY.md`](DEPLOY.md) — the prebuilt ZeroClaw binary
+> lacks the WASM plugin host, so a source build is required.
+
 ```bash
 # 1. Install ZeroClaw
 curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/master/install.sh | bash

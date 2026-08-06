@@ -20,7 +20,7 @@ with open(sys.argv[1], "rb") as f:
     cfg = tomllib.load(f)
 
 required_sections = [
-    "providers.models.anthropic",
+    "providers.models.openrouter",
     "risk_profiles",
     "channels.telegram",
     "agents",
