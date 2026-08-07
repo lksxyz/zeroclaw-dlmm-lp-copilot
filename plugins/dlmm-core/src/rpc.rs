@@ -323,20 +323,24 @@ fn rpc_get_latest_blockhash(_url: &str) -> Result<[u8; 32], String> {
 
 #[cfg(target_family = "wasm")]
 fn jupiter_price(token_mint: &Pubkey) -> Result<f64, String> {
-    let url = format!("https://api.jup.ag/price/v2?ids={token_mint}");
+    // Jupiter Price API v3: `GET https://api.jup.ag/price/v3?ids=<mint>` returns
+    // a flat map `{ "<mint>": { "usdPrice": <number>, ... } }` (not the v2
+    // `{data:{...}.price}` shape, which 404s since Jupiter moved to v3).
+    let url = format!("https://api.jup.ag/price/v3?ids={token_mint}");
     let resp = waki::Client::new()
         .get(&url)
         .connect_timeout(std::time::Duration::from_secs(10))
         .send()
         .map_err(|e| format!("price error: {e}"))?;
+    if resp.status_code() != 200 {
+        return Err(format!("price status {}", resp.status_code()));
+    }
     let body = resp.body().map_err(|e| format!("price body error: {e}"))?;
     let v: serde_json::Value =
         serde_json::from_slice(&body).map_err(|e| format!("price json error: {e}"))?;
-    let price = v["data"][token_mint.to_string()]["price"]
-        .as_str()
-        .ok_or_else(|| format!("no price for {token_mint}"))?
-        .parse::<f64>()
-        .map_err(|e| format!("bad price: {e}"))?;
+    let price = v[token_mint.to_string()]["usdPrice"]
+        .as_f64()
+        .ok_or_else(|| format!("no price for {token_mint}"))?;
     Ok(price)
 }
 

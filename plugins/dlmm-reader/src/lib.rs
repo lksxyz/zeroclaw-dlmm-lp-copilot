@@ -224,11 +224,15 @@ mod component {
             )
             .map_err(|e| format!("pool {} decode: {e}", pos.lb_pair))?;
 
-            // Mint decimals from RPC; Jupiter price API is unreachable from
-            // WASM (different host than the configured RPC URL), so the report
-            // returns raw amounts only — the LLM can estimate USD if it needs to.
+            // Mint decimals from RPC.
             let dec_x = rpc.get_mint_decimals(&lb.token_x_mint).unwrap_or(9);
             let dec_y = rpc.get_mint_decimals(&lb.token_y_mint).unwrap_or(9);
+
+            // Jupiter prices for the USD estimate. Best-effort: a price miss
+            // (unknown mint, rate limit, host not permitted) leaves
+            // usd_approx = null rather than failing the whole report.
+            let price_x = dlmm_core::rpc::get_jupiter_price(&lb.token_x_mint).ok();
+            let price_y = dlmm_core::rpc::get_jupiter_price(&lb.token_y_mint).ok();
 
             // Fetch the bin arrays covering the position's CURRENT range —
             // the claimable-fee math needs each bin's per-token stored fees.
@@ -243,7 +247,7 @@ mod component {
                 }
             }
 
-            reports.push(shape_report(id, &pos, &lb, owner, None, None, dec_x, dec_y, &bin_arrays));
+            reports.push(shape_report(id, &pos, &lb, owner, price_x, price_y, dec_x, dec_y, &bin_arrays));
         }
         Ok(serde_json::to_string(&json!({ "positions": reports }))
             .map_err(|e| format!("serialize: {e}"))?)
