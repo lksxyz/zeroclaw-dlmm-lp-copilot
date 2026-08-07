@@ -16,9 +16,13 @@
    If nothing triggers → output `all clear`, send nothing.
    Tools: send_message_to_peer
 
-3. **Settlement cleanup** — If memory has a pending marker
+3. **Settlement cleanup** — For each pool slot with a pending marker
    (`pending_tx_<nonce>` with the recorded `previous_nonce_hash`), check:
-   `dlmm_reader {"mode":"status","nonce_address":"<<NONCE_ACCOUNT>>","previous_nonce_hash":"<recorded>"}`
-   - `settled: true` → clear the pending marker — a new proposal is safe
-   - `settled: false` → keep the marker; do NOT propose a new tx on that nonce
+   `dlmm_reader {"mode":"status","nonce_address":"<nonce>","previous_nonce_hash":"<recorded>"}`
+   - `settled: true` → clear the pending marker — that pool slot is free for reuse
+   - `settled: false` → keep the marker; do NOT propose a new tx on that slot
    Tools: dlmm_reader, memory_recall
+
+   The pool size is `__config.nonce_addresses` (host-injected, see
+   `DEPLOY.md` §7). SOPs and skills track one in-flight tx per slot, so
+   parallel pending approvals can coexist.

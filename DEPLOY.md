@@ -10,7 +10,7 @@ Walkthrough for running the copilot on a fresh Rocky Linux VPS, with
 | RAM | ≥ 4 GiB (8 GiB better) — source build peaks at ~4–7 GiB |
 | Disk | ≥ 10 GiB free |
 | Firewall | Telegram uses outbound long-polling → **no inbound ports required** (unless you expose the web dashboard) |
-| Accounts | OpenRouter key, Telegram bot token, Solana RPC URL (Helius/any), Cloudflare account for the relay |
+| Accounts | OpenRouter key, Telegram bot token, Solana RPC URL (Helius/any) |
 
 Run everything as a non-root user (e.g. `zeroclaw`). SELinux is enforcing on
 Rocky by default — see §8 if the service misbehaves.
@@ -88,7 +88,7 @@ or inline the real values into `~/.zeroclaw/config.toml`:
 | `TELEGRAM_CHAT_ID` | `-1001234567890` |
 | `SOLANA_RPC_URL` | `https://mainnet.helius-rpc.com/?api-key=…` |
 | `OPERATOR_WALLET_PUBKEY` | your Phantom pubkey |
-| `ACTION_ENDPOINT_BASE` | `https://dlmm-relay.<subdomain>.workers.dev` |
+| `DURABLE_NONCE_ADDRESS_*` | one per pool slot (see `DLMM_NONCE_POOL` below) |
 
 > The `[plugins.entries.*]` sections must be hand-added — `zeroclaw config set`
 > can't materialize a `plugins.entries` node for a freshly installed plugin.
@@ -104,16 +104,31 @@ cp -r ~/copilot/sops/dlmm-* ~/.zeroclaw/sops/
 
 Cron runs inside ZeroClaw (`[sops.triggers.*]`) — no system cron needed.
 
-## 7. Relay (action-endpoint)
+## 7. Durable nonce pool
 
-Stateless Cloudflare Worker, no secrets. Deploy from your laptop (not the VPS):
+Bounty trap: one nonce account serializes to one in-flight transaction. With
+a single nonce, two parallel pending approvals (e.g. claim + rebalance) would
+double-advance and the second would fail. The builder exposes a **nonce pool**
+— pre-allocate N nonce accounts with the operator's wallet as authority:
 
 ```bash
-cd action-endpoint && npm install
-CLOUDFLARE_API_TOKEN=<token> npx wrangler deploy
+# One nonce account per concurrent pending tx you want to allow.
+# Each costs ~0.0015 SOL of rent.
+for i in 1 2 3; do
+  solana create-nonce-account /tmp/nonce-$i.json 0.0015 \
+    $(solana-keygen pubkey /tmp/operator.json) --url mainnet-beta
+done
+
+# Export them as env vars matching the config placeholders.
+export DURABLE_NONCE_ADDRESS_1=$(solana-keygen pubkey /tmp/nonce-1.json)
+export DURABLE_NONCE_ADDRESS_2=$(solana-keygen pubkey /tmp/nonce-2.json)
+export DURABLE_NONCE_ADDRESS_3=$(solana-keygen pubkey /tmp/nonce-3.json)
 ```
 
-Paste the resulting `*.workers.dev` URL into `ACTION_ENDPOINT_BASE`.
+The agent/SOP tracks which pool slots are in-flight (in memory) and hands
+the chosen slot to `dlmm_builder` via `args.nonce_address`. The plugin
+validates the slot is inside the pool — a prompt injection asking for a
+different nonce is rejected (see `prompts/injection-tests.md` scenario 6).
 
 ## 8. Service
 
@@ -139,7 +154,7 @@ journalctl -u zeroclaw -f        # or the user-unit log path
 zeroclaw plugin list             # reader + builder present
 ```
 
-Then DM the bot: `report` → position summary; `claim #<id>` → Solana Action URL.
+Then DM the bot: `report` → position summary; `claim #<id>` → raw unsigned tx (base64); `rebalance #<id>` → atomic 3-ix unsigned tx (base64).
 
 ## 10. Troubleshooting
 
@@ -147,6 +162,7 @@ Then DM the bot: `report` → position summary; `claim #<id>` → Solana Action 
 |---|---|
 | `zeroclaw plugin: unrecognized subcommand` | Prebuilt binary — rebuild with `--features plugins-wasm-cranelift` (§2) |
 | `plugin list` empty | Check startup log for skip warning: malformed manifest, missing `wasm_path`, or signature-policy rejection |
-| Agent can't reach RPC/relay | `http_request` is excluded by design — traffic must flow through plugins; check `plugins.entries` config values |
+| Agent can't reach RPC | `http_request` is excluded by design — traffic must flow through plugins; check `plugins.entries` config values |
 | Service fails to start | SELinux denials (`ausearch -m avc`), missing env vars, or linger not enabled |
 | No Telegram replies | Bot token/chat id wrong, or `sender_match = "handle"` mismatch |
+| `nonce_addresses` rejected | Verify the env vars are exported under the same names (`DURABLE_NONCE_ADDRESS_1`, `_2`, `_3`) — and that each address is a valid base58 pubkey |
