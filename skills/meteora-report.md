@@ -72,6 +72,6 @@ Empty: `--`, never `null`/`0`/`N/A`.
 
 ## Rules
 
-- No signing, no tx building, no Action URLs in report
+- No signing, no tx building, no URLs in report
 - No hedging, no apologising. Mirror user's language.
 - Report only what `dlmm_reader` returned. Never invent claimable or range values.

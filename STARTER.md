@@ -42,7 +42,7 @@ model can't redirect the RPC or read secrets it wasn't granted.
 
 - `skills/meteora-*.md` → `skills/<protocol>-*.md` (read → shape → format/build → return unsigned base64 tx)
 - `plugins/dlmm-reader/` → `plugins/<protocol>-reader/` (pure core + shim + host tests)
-- `plugins/dlmm-builder/` → `plugins/<protocol>-builder/` (validate + encode → Action URL)
+- `plugins/dlmm-builder/` → `plugins/<protocol>-builder/` (validate + encode → raw unsigned tx base64)
 - `config.example.toml` — plugin entries + config sections
 - `SUBMISSION.md` + `showcase/` → your story
 

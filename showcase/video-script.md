@@ -121,7 +121,7 @@ Phantom shows:
 ```
 Rebalance DLMM position
 ─────────────────────────────────
-Network   : Devnet
+Network   : Mainnet
 Fee payer : <operator wallet> · 0.000015 SOL
 Signers   : 1
 ─────────────────────────────────
@@ -203,11 +203,12 @@ English, lower-third, white on dark, no audio needed (the screen does the work).
 
 - Run the terminal feed through `zeroclaw service logs -f` (or the equivalent
   log sink on stock ZeroClaw) so the timestamps match the Telegram messages.
-- Pre-fund the wallet on Devnet with 1 SOL and open two DLMM positions
-  (one stable, one volatile) for a clean demo.
+- Use the live mainnet wallet (small amount) and the position from
+  `showcase/demo-transcript.md` — the solscan proof tx shows it landing
+  on-chain.
 - The OOR alert at 08:30 should be real, not scripted — let the price
   drift naturally overnight, or push the position out of range by
-  swapping on the test pool.
+  swapping on the pool.
 - The terminal feed should show the real `dlmm_builder` (wasm) invocation
   lines with timestamps matching the Telegram message arrival.
 - The fail-closed demo at 2:25 is the punchline. Make sure the

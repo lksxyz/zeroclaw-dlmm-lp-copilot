@@ -10,7 +10,7 @@ const bs58 = require("bs58");
 const { web3 } = require("@coral-xyz/anchor");
 const { deriveBinArray, deriveEventAuthority, deriveBinArrayBitmapExtension } = require("@meteora-ag/dlmm");
 
-const PROGRAM = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"; // DLMM devnet
+const PROGRAM = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"; // Meteora DLMM mainnet program
 // deterministic valid pubkeys: sha256(seed) — stable across runs
 const keyFor = (seed) => new web3.PublicKey(crypto.createHash("sha256").update(seed).digest()).toBase58();
 const POOL = keyFor("fixture.pool");
@@ -18,7 +18,7 @@ const POSITION = keyFor("fixture.position");
 const OWNER = keyFor("fixture.owner");
 const NONCE = keyFor("fixture.nonce");
 const TOKEN_X_MINT = "So11111111111111111111111111111111111111112";
-const TOKEN_Y_MINT = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"; // USDC devnet
+const TOKEN_Y_MINT = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"; // USDC mint (fixture constant)
 const RESERVE_X = keyFor("fixture.reserve_x");
 const RESERVE_Y = keyFor("fixture.reserve_y");
 const TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";

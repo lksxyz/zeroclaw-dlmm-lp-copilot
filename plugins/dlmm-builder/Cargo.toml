@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 # MIT matches the repo root LICENSE (bounty requires MIT on plugin code).
 license = "MIT"
-description = "ZeroClaw WIT tool plugin: build unsigned Meteora DLMM claim/rebalance transactions in-wasm (waki) — durable nonce as recentBlockhash, mechanical validation, solana-action: URL out."
+description = "ZeroClaw WIT tool plugin: build unsigned Meteora DLMM claim/rebalance transactions in-wasm (waki) — durable nonce as recentBlockhash, mechanical validation, raw unsigned tx (base64) out."
 publish = false
 
 [lib]

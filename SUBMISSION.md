@@ -142,10 +142,10 @@ zeroclaw service install && zeroclaw service start
 
 - Code: this repo (plugins, skills, SOPs, threat model — all in-tree)
 - Ground truth: `make fixtures && make fixtures-check` (byte-for-byte)
-- Plugins: `make plugin` (16 core + 9 reader + 10 builder host tests)
+- Plugins: `make plugin` (19 core + 9 reader + 16 builder host tests)
 - Sign/submit: `tools/execute` (operator keypair, stdin-pipe friendly)
 - Config: `make validate`
-- Demo: `showcase/demo-transcript.md` (exact Devnet command sequence)
+- Demo: `showcase/demo-transcript.md` (exact mainnet command sequence)
 - Injection: `prompts/injection-tests.md` (7 scenarios, expected behavior per scenario)
 
 ## Future work

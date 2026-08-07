@@ -41,7 +41,7 @@ the LLM cannot redirect the RPC, cannot read secrets, and `http_request` is
 ```
 plugins/
   dlmm-core/        # shared pure core: borsh decode, nonce helpers, tx encoding,
-                    #   waki RPC client, mechanical validation (host tests, 16)
+                    #   waki RPC client, mechanical validation (host tests, 19)
   dlmm-reader/      # T0 shim → dlmm_reader tool (positions/report/status modes)
   dlmm-builder/     # T1 shim → dlmm_builder tool (claim/rebalance → unsigned tx)
   wit/              # ZeroClaw registry wit/v0, pinned (see UPSTREAM_REF.md)
