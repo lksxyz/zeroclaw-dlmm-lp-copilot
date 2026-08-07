@@ -59,7 +59,7 @@ quickstart_completed = true
 # filesystem + web tools are excluded outright, and so is `http_request` — ALL
 # outbound traffic goes through the dlmm-reader/dlmm-builder plugins (their
 # `http_client` grant is host-scoped and their config is host-injected, so the
-# LLM cannot redirect the RPC or the relay).
+# LLM cannot redirect the RPC or tamper with the config).
 #
 # Mirrors the live operator config and survives a misconfigured quickstart.
 [risk_profiles.dlmm]
@@ -133,8 +133,8 @@ backend     = "sqlite.sqlite"
 search_mode = "bm25"
 
 # ---------- skills ----------
-# RPC access, the relay base URL, the nonce, and the operator wallet moved
-# into the plugin sections below — the skills only keep SOP thresholds.
+# RPC access, the nonce pool, and the operator wallet moved into the plugin
+# sections below — the skills only keep SOP thresholds.
 [skills.meteora]
 report_chat_id = "${TELEGRAM_CHAT_ID}"
 
@@ -167,7 +167,7 @@ tz   = "America/Sao_Paulo"
 # The host injects each entry's `config` map into the tool's execute args
 # under the reserved `__config` key (gated by the manifest's `config_read`
 # permission); caller-supplied `__config` is stripped, so the LLM can't
-# redirect the RPC, change the signer wallet, or point at a different relay.
+# redirect the RPC or change the signer wallet.
 # The first entry must be hand-added — `zeroclaw config set` can't
 # materialize a plugins.entries node for a freshly installed plugin.
 # NOTE: `plugins.entries` is a TOML array of tables (natural key `name`),
@@ -178,17 +178,12 @@ enabled = true
 
 [[plugins.entries]]
 name = "dlmm-reader"
-config = {
-  rpc_url       = "${SOLANA_RPC_URL}",
-  owner_pubkey  = "${OPERATOR_WALLET_PUBKEY}",
-  dlmm_program  = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",
-}
+# Inline tables must stay on ONE line — TOML 1.0 forbids newlines inside
+# braces, and Python ≥3.14's tomllib (used by validate-config.sh) rejects
+# them. ZeroClaw's config loader needs the nested `config` node inline
+# (a `[plugins.entries.config]` table resets `plugins` to defaults).
+config = { rpc_url = "${SOLANA_RPC_URL}", owner_pubkey = "${OPERATOR_WALLET_PUBKEY}", dlmm_program = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo" }
 
 [[plugins.entries]]
 name = "dlmm-builder"
-config = {
-  rpc_url       = "${SOLANA_RPC_URL}",
-  owner_pubkey  = "${OPERATOR_WALLET_PUBKEY}",
-  dlmm_program  = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",
-  nonce_address = "${DURABLE_NONCE_ADDRESS}",
-}
+config = { rpc_url = "${SOLANA_RPC_URL}", owner_pubkey = "${OPERATOR_WALLET_PUBKEY}", dlmm_program = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo", nonce_address = "${DURABLE_NONCE_ADDRESS}" }

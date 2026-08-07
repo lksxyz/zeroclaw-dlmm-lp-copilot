@@ -52,9 +52,7 @@ skills/             # Agent-readable markdown (loaded every invoke)
 sops/               # Cron definitions
   dlmm-daily-report/     08:00 report
   dlmm-range-monitor/    */30 OOR check + settlement cleanup
-action-endpoint/  # Standalone Cloudflare Worker (zero deps, zero secrets)
-                 #   — auxiliary reference impl; not in the agent flow
-tools/            # Ground-truth fixture generator (web3.js + @meteora-ag/dlmm)
+tools/            # Fixture generator (web3.js + @meteora-ag/dlmm) + ./execute CLI
 config.example.toml
 prompts/injection-tests.md
 showcase/         # Video script, demo runbook, Discord post body
@@ -138,7 +136,7 @@ See `STARTER.md` — forkable template for any protocol-on-ZeroClaw use case.
 
 ```bash
 make help       # targets
-make validate   # TOML + skill frontmatter + all plugin tests + worker typecheck
+make validate   # TOML + skill frontmatter + all plugin tests
 make fixtures   # regenerate ground-truth fixtures (byte-for-byte)
 make demo       # end-to-end Devnet check
 ```

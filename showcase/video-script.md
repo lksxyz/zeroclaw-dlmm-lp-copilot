@@ -87,31 +87,34 @@ Agent replies (within ~1.5 s, hard-cut on the message arriving):
 
 ```
 #4822 rebalance · bins 8500..8600 → 8400..8800
+3 instructions (AdvanceNonce → removeLiquidity → addLiquidity)
+recentBlockhash: durable nonce (no 90s expiry)
+unsigned — sign it with your wallet:
 
-Tap to sign: solana-action:https://dlmm-relay.example.workers.dev/tx/NzI1NDFhODg...
+<raw base64 tx, ~40 chars visible, rest scrolls>
 ```
 
-Cut to **terminal**, side-by-side with phone, showing the wrangler tail:
+Cut to **terminal**, side-by-side with phone, showing the same event in
+`zeroclaw service logs -f`:
 
 ```
-[08:32:14] GET /tx/NzI1NDFhODg...  (tx in the URL path)
-[08:32:14] → 200 { title:"Rebalance DLMM position", label:"Rebalance",
-                   description:"3 instructions (System → DLMM) from the
-                   dlmm_builder plugin. Durable-nonce first, owner-signed." }
-[08:32:17] POST /tx/NzI1NDFhODg... body={account:"<operator_wallet>"}
-[08:32:17] → 200 { transaction:"<base64>" }   ← echo, no rebuild
-[08:32:18] (other wallet) POST → 403 — tx addressed to a different wallet
+[08:32:14] tool dlmm_builder (wasm) rebalance → validation ok
+[08:32:14]   rpc getAccountInfo nonce (in-wasm, __config RPC)
+[08:32:14]   rpc getAccountInfo position x3 (in-wasm)
+[08:32:15]   encoded 3-ix unsigned tx · nonce hash as recentBlockhash
+[08:32:15] channel_send telegram.dlmm_copilot ok
 ```
 
-Show: the relay never touches RPC, never rebuilds the tx, holds no secrets —
-the preview is rendered **from the bytes** the plugin already built.
+Show: the tx is built entirely **inside the WASM plugin** — the log shows
+fetch + decode + validate + encode in-wasm, no host tool, no key in the
+environment. The agent never sees a signing key.
 
 ---
 
 ## 1:45 – 2:25 — The user signs in Phantom
 
-**Frame**: phone, finger tapping the `solana-action:` link in Telegram,
-Phantom opening.
+**Frame**: phone, finger selecting the base64 in Telegram, "copy"; cut to
+Phantom app, "sign transaction" opening (or terminal `./execute`).
 
 Phantom shows:
 
@@ -205,7 +208,7 @@ English, lower-third, white on dark, no audio needed (the screen does the work).
 - The OOR alert at 08:30 should be real, not scripted — let the price
   drift naturally overnight, or push the position out of range by
   swapping on the test pool.
-- The relay tail should show a real `GET /tx/<b64url>` + `POST` echo — the
-  `solana-action:` URL maps 1:1 to the relay path.
+- The terminal feed should show the real `dlmm_builder` (wasm) invocation
+  lines with timestamps matching the Telegram message arrival.
 - The fail-closed demo at 2:25 is the punchline. Make sure the
   `autonomy = "supervised"` line in the config is visible.

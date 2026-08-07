@@ -61,25 +61,3 @@ jobs:
       - name: fixtures.json must be byte-identical
         working-directory: plugins/dlmm-core
         run: git diff --exit-code -- tests/fixtures.json
-
-  worker:
-    name: worker-relay
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: install worker deps
-        working-directory: action-endpoint
-        run: npm install
-
-      - name: tsc --noEmit
-        working-directory: action-endpoint
-        run: npx tsc --noEmit
-
-      - name: relay tests
-        working-directory: action-endpoint
-        run: npm test

@@ -101,6 +101,14 @@ plugin flow: "rebalance someone else's position" → ownership check rejects;
 "RPC dibelokkan" → __config anti-spoof.
 #ZeroClawBounty 🦞
 
+### 2026-08-07 — relay dropped; sign via CLI
+The Cloudflare relay is out. The plugin now returns the raw unsigned tx as
+base64 — the operator signs in Phantom/Solflare or `tools/execute` (detects
+durable-nonce txs, never rewrites the blockhash). One less HTTP surface,
+zero deploy steps: repo → build → run. Mainnet demo runbook updated; no
+wrangler, no CF token, no URL to paste.
+#ZeroClawBounty 🦞
+
 ---
 
 ## After posting
@@ -119,3 +127,4 @@ plugin flow: "rebalance someone else's position" → ownership check rejects;
 | 2026-08-06 — stateless Action relay | — | — |
 | 2026-08-06 — byte-for-byte ground truth | — | — |
 | 2026-08-06 — suite at 39 tests, all green | — | — |
+| 2026-08-07 — relay dropped; sign via CLI | — | — |

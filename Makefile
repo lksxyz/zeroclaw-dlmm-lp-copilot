@@ -5,13 +5,12 @@ help: ## list targets
 
 # ---- validate ------------------------------------------------------------
 .PHONY: validate
-validate: ## parse all TOML, check skill frontmatter, test all plugin crates, typecheck worker
+validate: ## parse all TOML, check skill frontmatter, test all plugin crates
 	@./scripts/validate-config.sh
 	@./scripts/validate-skills.sh
 	@cd plugins/dlmm-core && cargo test --locked --quiet
 	@cd plugins/dlmm-reader && cargo test --locked --quiet
 	@cd plugins/dlmm-builder && cargo test --locked --quiet
-	@cd action-endpoint && npx tsc --noEmit
 
 # ---- plugin --------------------------------------------------------------
 .PHONY: plugin plugin-build plugin-test
@@ -38,23 +37,6 @@ fixtures: ## regenerate ground-truth fixtures from independent SDK sources
 fixtures-check: ## regenerate and fail if plugins/dlmm-core/tests/fixtures.json drifts
 	cd tools && node gen-fixtures.cjs
 	cd plugins/dlmm-core && git diff --exit-code -- tests/fixtures.json
-
-# ---- worker (action endpoint) -------------------------------------------
-.PHONY: worker-install worker-dev worker-deploy worker-typecheck worker-test
-worker-install: ## npm install in the action-endpoint
-	cd action-endpoint && npm install
-
-worker-dev: ## wrangler dev — local worker at http://127.0.0.1:8787
-	cd action-endpoint && npx wrangler dev
-
-worker-deploy: ## wrangler deploy — needs CLOUDFLARE_API_TOKEN
-	cd action-endpoint && npx wrangler deploy
-
-worker-typecheck: ## tsc --noEmit
-	cd action-endpoint && npx tsc --noEmit
-
-worker-test: ## relay tests (node --test)
-	cd action-endpoint && npm test
 
 # ---- demo ----------------------------------------------------------------
 .PHONY: demo

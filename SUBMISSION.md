@@ -41,12 +41,12 @@ Brazilian LPs get `America/Sao_Paulo` timezone (configurable).
    indexes in-bounds), builds the unsigned tx with `AdvanceNonceAccount` first
    and the **live nonce hash** as `recentBlockhash`, and returns the raw
    unsigned tx (base64). LLM proposes — plugin verifies.
-4. **Standalone relay** (`action-endpoint/`): Cloudflare Worker with **zero
-   secrets, zero RPC, zero SDK deps** (~150 lines). Auxiliary reference impl:
-   serves a wallet preview *from the tx bytes* (instruction count, program
-   IDs, nonce first, signer) and echoes the tx back; rejects any signer ≠
-   fee payer with 403. Not in the agent flow — the in-tree plugin path
-   returns raw base64 for the operator to sign in any wallet.
+4. **Sign + submit CLI** (`tools/execute`): signs the raw unsigned base64 tx
+   with the operator keypair and broadcasts — stdin-pipe friendly for the
+   demo flow (`./execute "$(bot reply)"`). Detects durable-nonce txs (keeps
+   the stored nonce hash, never rewrites the blockhash) vs latest-blockhash
+   txs (fresh blockhash). The agent never signs — the operator does, in any
+   wallet or this CLI.
 5. **Four skills** (`skills/meteora-*.md`): T0 read/report, T1 claim, T1
    rebalance with durable-nonce pool settlement confirmation.
 6. **Ground-truth fixture suite** (`tools/gen-fixtures.cjs`): txs built with the
@@ -54,8 +54,8 @@ Brazilian LPs get `America/Sao_Paulo` timezone (configurable).
    byte-for-byte by the Rust core — `make fixtures` regenerates, CI fails on
    drift.
 
-Plugins are the only code that talks to Solana. Relay is the only HTTP surface.
-Both reproducible from this repo.
+Plugins are the only code that talks to Solana — and the only HTTP surface.
+Fully reproducible from this repo.
 
 ## Custody tier
 
@@ -91,8 +91,8 @@ plugin validates the hint is inside the pool (anti-spoof). Settlement is
 verified by the nonce hash changing on-chain before a new proposal on
 the same slot is allowed.
 
-**Third-party trust:** Jupiter (read-only price), Cloudflare (relay host),
-RPC (user-supplied, in plugin config). Declared.
+**Third-party trust:** Jupiter (read-only price), RPC (user-supplied, in
+plugin config). Declared.
 
 **Mechanical validation.** Ownership, claimable > 0, liquidity > 0, low < high,
 range contains the active bin, bin-array indexes inside the default bitmap —
@@ -102,10 +102,10 @@ checked in-wasm before a single tx byte is serialized.
 
 - No trading bot, sniping, buy recommendations
 - No raw private key — no key in the system at all
-- No concept/slideware — runs on Devnet in the video
+- No concept/slideware — runs on mainnet (demo runbook in-tree)
 - No registry PR — plugins live in this repo (bounty rule)
-- No secrets in the relay — the worker is stateless; it can't leak what it
-  doesn't hold
+- No relay / no extra HTTP surface — outbound is only plugin `http_client`
+  (RPC + price), everything else is denied by policy
 
 ## Beyond the brief
 
@@ -113,7 +113,8 @@ checked in-wasm before a single tx byte is serialized.
   pattern): fetch, decode, validate, encode, all in-wasm with anti-spoof config
 - **Unsigned tx as the deliverable** — the plugin hands back the raw unsigned
   tx; the operator signs in any wallet (Phantom, Solflare, CLI)
-- **Stateless relay** — wallet preview rendered from bytes; zero secret/KV/SDK surface
+- **Sign/submit CLI** — `tools/execute` signs the raw base64 with the operator
+  keypair and broadcasts; stdin-pipe friendly for the demo flow
 - **Durable nonces** (blockhash trap solved) for claim *and* rebalance
 - **Byte-for-byte ground truth** — independent SDK sources, regenerable, CI-checked
 - **Triple-gated defense**: LLM (skill rules) + Tool (denied-by-default) + Cryptographic (on-chain auth)
@@ -139,10 +140,10 @@ zeroclaw service install && zeroclaw service start
 
 ## Verify
 
-- Code: this repo (plugins, skills, SOPs, relay, threat model — all in-tree)
+- Code: this repo (plugins, skills, SOPs, threat model — all in-tree)
 - Ground truth: `make fixtures && make fixtures-check` (byte-for-byte)
 - Plugins: `make plugin` (16 core + 9 reader + 10 builder host tests)
-- Relay: `npm test && npm run typecheck` (4 tests, parse-vs-fixture)
+- Sign/submit: `tools/execute` (operator keypair, stdin-pipe friendly)
 - Config: `make validate`
 - Demo: `showcase/demo-transcript.md` (exact Devnet command sequence)
 - Injection: `prompts/injection-tests.md` (7 scenarios, expected behavior per scenario)

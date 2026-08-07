@@ -12,10 +12,9 @@ ZeroClaw runtime (Telegram, SOPs, memory)
 plugins/<protocol>-reader     plugins/<protocol>-builder
   fetch + decode in-wasm        validate mechanically + encode tx
    ↓ propose
-solana-action:<relay>/tx/<b64>  →  action-endpoint/ (stateless relay:
-                                  preview from bytes, echo, no secrets)
+raw unsigned tx (base64)      — agent never holds a key
    ↓ signs
-Phantom / Solflare            — agent never holds a key
+Phantom / Solflare / tools/execute (CLI)
 ```
 
 If the agent must NOT hold a key, this shape fits. If it must sign, use
@@ -35,13 +34,13 @@ model can't redirect the RPC or read secrets it wasn't granted.
   (wit/v0 registry, `http_client` + `config_read`, parameters-schema)
 - `sops/dlmm-daily-report/` + `sops/dlmm-range-monitor/` — cron SOP pattern
 - `prompts/injection-tests.md` — scenario template (Threat → Expected → Why falls closed)
-- `action-endpoint/` — stateless relay (preview + echo). No secrets to rotate.
+- `tools/execute` — sign/submit CLI pattern (operator keypair, stdin-pipe friendly)
 - `tools/gen-fixtures.cjs` + `tools/package.json` — ground-truth generator
   pattern (independent SDK sources, `make fixtures-check` fails on drift)
 
 ## Change for a new protocol
 
-- `skills/meteora-*.md` → `skills/<protocol>-*.md` (read → shape → format/build → return Action URL)
+- `skills/meteora-*.md` → `skills/<protocol>-*.md` (read → shape → format/build → return unsigned base64 tx)
 - `plugins/dlmm-reader/` → `plugins/<protocol>-reader/` (pure core + shim + host tests)
 - `plugins/dlmm-builder/` → `plugins/<protocol>-builder/` (validate + encode → Action URL)
 - `config.example.toml` — plugin entries + config sections
@@ -70,14 +69,12 @@ model can't redirect the RPC or read secrets it wasn't granted.
 
 ```bash
 make help          # list targets
-make validate      # TOML parse + skill frontmatter + all plugin tests + worker typecheck
+make validate      # TOML parse + skill frontmatter + all plugin tests
 make plugin        # cargo test dlmm-core + dlmm-reader + dlmm-builder
 make plugin-build  # compile both .wasm (gitignored)
 make fixtures      # regenerate ground-truth fixtures from SDK sources
 make fixtures-check# regenerate and fail on drift
-make worker-dev    # wrangler dev
-make worker-deploy # wrangler deploy (no secrets)
-make demo          # end-to-end Devnet
+make demo          # end-to-end plumbing check (RPC + price feed)
 ```
 
 ## When NOT to use

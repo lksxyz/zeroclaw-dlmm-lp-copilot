@@ -1,7 +1,0 @@
-name = "dlmm-lp-copilot-action-endpoint"
-main = "src/index.ts"
-compatibility_date = "2026-07-01"
-
-# Stateless relay: no vars, no secrets, no bindings, no compat flags.
-# The tx arrives base64url-encoded in the URL path; everything the worker
-# needs is in the bytes. Deploy: npx wrangler deploy
