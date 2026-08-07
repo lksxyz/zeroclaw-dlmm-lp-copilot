@@ -11,8 +11,9 @@ runs inside two WASM plugins. The agent proposes; you sign in any wallet. No key
 - **Daily 08:00 (operator TZ, default `America/Sao_Paulo`)** — position report (range, active bin, claimable fees)
 - **Every 30 min** — out-of-range + fee-milestone alert
 - **DM `report`** — on-demand position report
-- **DM `claim #<id>`** → raw unsigned claim tx → sign in any wallet
+- **DM `claim #<id>`** → raw unsigned claim tx (base64) → sign in any wallet
 - **DM `rebalance #<id> [wide|tight]`** → atomic 3-ix unsigned tx on a durable nonce from a pool (parallel pending approvals) → sign in any wallet
+- **`tools/execute`** — sign + submit the base64 with the operator keypair (or paste it into Phantom/Solflare); durable-nonce txs keep their nonce hash, never rewritten
 
 ## Architecture
 
@@ -52,12 +53,24 @@ skills/             # Agent-readable markdown (loaded every invoke)
 sops/               # Cron definitions
   dlmm-daily-report/     08:00 report
   dlmm-range-monitor/    */30 OOR check + settlement cleanup
-tools/            # Fixture generator (web3.js + @meteora-ag/dlmm) + ./execute CLI
+tools/              # Fixture generator (web3.js + @meteora-ag/dlmm) + ./execute CLI
+scripts/            # submit-checklist, validate-config, validate-skills, x-post
+prompts/            # injection-tests.md (7 scenarios) + recorded transcripts
+showcase/           # Video, demo runbook, Discord post body
 config.example.toml
-prompts/injection-tests.md
-showcase/         # Video script, demo runbook, Discord post body
-BUILD_LOG.md      # Build-in-public milestones (X tiebreak source)
+DEPLOY.md           # Self-host walkthrough (Rocky VPS, source build, nonce pool)
+SUBMISSION.md       # Bounty submission write-up
+STARTER.md          # Forkable template for any protocol-on-ZeroClaw use case
+BUILD_LOG.md        # Build-in-public milestones (X tiebreak source)
 ```
+
+## Showcase
+
+- **Video:** https://youtu.be/Kt5I4j2-Qm0
+- **Live on-chain proof** (the mainnet rebalance shown in the video):
+  https://solscan.io/tx/5WQ9Wie2doasd9aaeyoABbpisChAAZmas6D9GgDWDnrzg5eoYCFFPYaj7uFmM29XdGFUsUgZnCRYkSyTVpK6CVAD
+- Demo runbook: `showcase/demo-transcript.md` (copy-pasteable mainnet commands)
+- Discord post body: `showcase/discord-post.md`
 
 ## Quick start
 
@@ -75,6 +88,8 @@ zeroclaw quickstart
 
 # 3. Copy config and fill placeholders — the plugin sections take
 #    SOLANA_RPC_URL / OPERATOR_WALLET_PUBKEY / DURABLE_NONCE_ADDRESS_{1,2,3}
+#    (one nonce account per pool slot; create them with
+#    `solana create-nonce-account`, see DEPLOY.md §7)
 cp config.example.toml ~/.zeroclaw/config.toml
 
 # 4. Build the WASM plugins (needs rustup target wasm32-wasip2)
@@ -87,6 +102,10 @@ cp -r sops/dlmm-* ~/.zeroclaw/sops/
 
 # 6. Start
 zeroclaw service install && zeroclaw service start
+
+# 7. Sign + submit an unsigned tx from the bot with the operator keypair:
+./tools/execute "<base64 from the bot>"
+#    or pipe it: echo "<base64>" | ./tools/execute
 ```
 
 ## Custody tier
