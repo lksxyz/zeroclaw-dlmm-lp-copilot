@@ -158,7 +158,8 @@ zeroclaw service install && zeroclaw service start
 ## Links
 
 - Repo: <https://github.com/lksxyz/zeroclaw-dlmm-lp-copilot>
-- Showcase video script: `showcase/video-script.md` (video produced separately)
+- Showcase video: https://youtu.be/Kt5I4j2-Qm0 (script: `showcase/video-script.md`)
+- Live on-chain proof: https://solscan.io/tx/5WQ9Wie2doasd9aaeyoABbpisChAAZmas6D9GgDWDnrzg5eoYCFFPYaj7uFmM29XdGFUsUgZnCRYkSyTVpK6CVAD
 - Demo runbook: `showcase/demo-transcript.md`
 - Discord: <https://discord.gg/zeroclaw> → `#solana-bounty`
 - Bounty: Superteam Earn — Build Solana-native plugins for ZeroClaw

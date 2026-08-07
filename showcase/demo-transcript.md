@@ -61,6 +61,9 @@ The bot hands back raw `tx_base64`. Sign and submit with the operator key:
 
 Or pipe from the bot's reply. See `tools/execute` for the script.
 
+**Live proof (mainnet):** the rebalance tx shown in the demo video —
+https://solscan.io/tx/5WQ9Wie2doasd9aaeyoABbpisChAAZmas6D9GgDWDnrzg5eoYCFFPYaj7uFmM29XdGFUsUgZnCRYkSyTVpK6CVAD
+
 ## 6. Prompt-injection — fails closed (30 s)
 
 DM (as if an attacker):

@@ -39,7 +39,7 @@ ground truth vs the official @meteora-ag/dlmm SDK: make fixtures-check,
 CI fails on drift.
 
 Repo: https://github.com/lksxyz/zeroclaw-dlmm-lp-copilot
-Video: [youtube/loom URL or attached .mp4]
+Video: https://youtu.be/Kt5I4j2-Qm0
 Runbook: showcase/demo-transcript.md (copy-pasteable mainnet commands)
 Threat model + 7-scenario injection suite: prompts/injection-tests.md
 
