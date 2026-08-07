@@ -38,11 +38,6 @@ fixtures-check: ## regenerate and fail if plugins/dlmm-core/tests/fixtures.json 
 	cd tools && node gen-fixtures.cjs
 	cd plugins/dlmm-core && git diff --exit-code -- tests/fixtures.json
 
-# ---- demo ----------------------------------------------------------------
-.PHONY: demo
-demo: ## run the end-to-end Devnet demo (see showcase/demo-transcript.md)
-	@./scripts/devnet-demo.sh
-
 # ---- submit --------------------------------------------------------------
 .PHONY: submit-checklist
 submit-checklist: ## print the pre-submit checklist

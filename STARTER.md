@@ -74,7 +74,6 @@ make plugin        # cargo test dlmm-core + dlmm-reader + dlmm-builder
 make plugin-build  # compile both .wasm (gitignored)
 make fixtures      # regenerate ground-truth fixtures from SDK sources
 make fixtures-check# regenerate and fail on drift
-make demo          # end-to-end plumbing check (RPC + price feed)
 ```
 
 ## When NOT to use

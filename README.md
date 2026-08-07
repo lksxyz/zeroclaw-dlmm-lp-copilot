@@ -138,7 +138,6 @@ See `STARTER.md` — forkable template for any protocol-on-ZeroClaw use case.
 make help       # targets
 make validate   # TOML + skill frontmatter + all plugin tests
 make fixtures   # regenerate ground-truth fixtures (byte-for-byte)
-make demo       # end-to-end Devnet check
 ```
 
 License: MIT.
