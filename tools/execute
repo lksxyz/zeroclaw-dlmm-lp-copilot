@@ -1,0 +1,69 @@
+#!/usr/bin/env node
+// execute — sign + submit an unsigned Solana transaction (base64).
+//
+// The DLMM Copilot bot returns raw unsigned tx (base64). This signs it with
+// the operator keypair and broadcasts to mainnet.
+//
+// Usage:
+//   ./execute "<tx_base64>"
+//   ./execute "$(cat /tmp/claim.b64)"
+//   echo "<tx_base64>" | ./execute
+//
+// A durable-nonce tx keeps its stored nonce hash as recentBlockhash and the
+// first instruction is AdvanceNonceAccount. A latest-blockhash tx (no nonce)
+// gets a fresh blockhash. Either way we don't rewrite a nonce tx's blockhash —
+// the nonce authority signature is what authorizes it.
+const fs = require("node:fs");
+const { Connection, Keypair, Transaction } = require("@solana/web3.js");
+
+const RPC = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
+const KEY = process.env.SOLANA_KEYPAIR || "/home/fahmi/.zeroclaw/operator-mainnet.json";
+
+async function main() {
+  let txB64 = process.argv[2];
+  if (!txB64 && !process.stdin.isTTY) {
+    txB64 = fs.readFileSync(0, "utf8").trim();
+  }
+  if (!txB64) {
+    console.error("usage: ./execute <unsigned tx base64>  (or pipe it in)");
+    console.error("  env: SOLANA_RPC_URL, SOLANA_KEYPAIR (default mainnet + operator-mainnet.json)");
+    process.exit(2);
+  }
+
+  const kp = Keypair.fromSecretKey(
+    Uint8Array.from(JSON.parse(fs.readFileSync(KEY, "utf8")))
+  );
+  const c = new Connection(RPC, "confirmed");
+
+  const tx = Transaction.from(Buffer.from(txB64.trim(), "base64"));
+  console.log("recentBlockhash:", tx.recentBlockhash);
+  console.log("fee payer:", tx.feePayer.toBase58());
+  console.log("instructions:", tx.instructions.length);
+  console.log("signing as:", kp.publicKey.toBase58());
+
+  // First instruction = AdvanceNonceAccount (System program) → durable nonce
+  // tx: keep the stored nonce hash, do NOT refresh the blockhash.
+  const isNonce = tx.instructions[0]?.programId.toBase58() === "11111111111111111111111111111111";
+  if (!isNonce) {
+    const { blockhash } = await c.getLatestBlockhash("confirmed");
+    tx.recentBlockhash = blockhash;
+    console.log("(latest-blockhash path — refreshed blockhash)");
+  } else {
+    console.log("(durable-nonce path — keeping nonce hash)");
+  }
+  tx.feePayer = kp.publicKey;
+
+  tx.sign(kp);
+  const raw = tx.serialize();
+  const sig = await c.sendRawTransaction(raw, { preflightCommitment: "confirmed" });
+  console.log("✓ tx sent:", sig);
+  await c.confirmTransaction(sig, "confirmed");
+  console.log("✓ confirmed:", sig);
+  console.log("view: https://solscan.io/tx/" + sig);
+}
+
+main().catch((e) => {
+  console.error("FATAL:", e.message);
+  if (e.logs) console.error(e.logs.join("\n"));
+  process.exit(1);
+});
