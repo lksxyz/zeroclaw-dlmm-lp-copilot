@@ -2,7 +2,7 @@
 name: meteora-rebalance
 version: 5
 custody: T1
-summary: Build atomic remove+add rebalance tx in-wasm (dlmm_builder), present the raw unsigned tx (base64) for the operator to sign in any wallet
+summary: Build atomic remove+add rebalance tx in-wasm (dlmm_builder), present the raw unsigned tx (base64) for the operator to sign in any wallet (multi-nonce pool)
 ---
 
 # meteora-rebalance
@@ -42,8 +42,13 @@ Center on `active_id`. Scale by bin_step:
 dlmm_builder {"mode":"rebalance","position_id":"<id>","new_low":<lo>,"new_high":<hi>,"label":"Rebalance"}
 ```
 
-The nonce address comes from `__config.nonce_address` (host-injected,
-anti-spoof) — do NOT ask the operator for it and do NOT pass it as an arg.
+The nonce address comes from `__config.nonce_addresses` (host-injected
+pool, anti-spoof). The LLM may hint which pool slot to use via
+`args.nonce_address` — the plugin validates the hint is inside the pool.
+If the pool is empty, the plugin falls back to the latest blockhash
+(demo path; expires ~90 s). Do NOT ask the operator for new nonces —
+the operator pre-allocates the pool (`DEPLOY.md` §7).
+
 The plugin validates mechanically (owner match, liquidity > 0, low < high,
 range contains the live active bin, bin-array indexes inside the default
 bitmap), derives re-deposit amounts from the position's shares × bin reserves
@@ -68,7 +73,7 @@ it expires in ~90s. Echo only the plugin's fields.
 
 ### 5. Confirm settlement
 
-Poll every 10s for ≤60s: `dlmm_reader {"mode":"status","nonce_address":"${NONCE_ACCOUNT}","previous_nonce_hash":"<recent_blockhash from step 3>"}`.
+Poll every 10s for ≤60s: `dlmm_reader {"mode":"status","nonce_address":"<the pool slot you used in step 3>","previous_nonce_hash":"<recent_blockhash from step 3>"}`.
 
 `settled: true` → nonce advanced → tx landed:
 
@@ -76,9 +81,13 @@ Poll every 10s for ≤60s: `dlmm_reader {"mode":"status","nonce_address":"${NONC
 ✓ #<id> rebalanced · <new_lo>..<new_hi>
 ```
 
+When `settled: true`, **free the pool slot** in agent memory so the same
+nonce can be reused for a future tx.
+
 ## Rules
 
 - Never sign. Never submit. Never broadcast.
-- Never reuse the nonce while a tx is unsettled.
+- Never reuse the same pool slot while a tx is unsettled. Pick a different
+  slot for the next concurrent tx.
 - Range never > ±15% without `wide` override.
 - Plugin error → reply verbatim, no retry.

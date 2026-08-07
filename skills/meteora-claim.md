@@ -2,7 +2,7 @@
 name: meteora-claim
 version: 5
 custody: T1
-summary: Build unsigned claim tx in-wasm (dlmm_builder), present the raw unsigned tx (base64) for the operator to sign in any wallet
+summary: Build unsigned claim tx in-wasm (dlmm_builder), present the raw unsigned tx (base64) for the operator to sign in any wallet (multi-nonce pool)
 ---
 
 # meteora-claim
@@ -34,8 +34,13 @@ claimable > 0 (the plugin rejects zero claims anyway).
 dlmm_builder {"mode":"claim","position_id":"<id>"}
 ```
 
-The nonce address comes from `__config.nonce_address` (host-injected,
-anti-spoof) — do NOT ask the operator for it and do NOT pass it as an arg.
+The nonce address comes from `__config.nonce_addresses` (host-injected
+pool, anti-spoof). The LLM may hint which pool slot to use via
+`args.nonce_address` — the plugin validates the hint is inside the pool.
+If the pool is empty, the plugin falls back to the latest blockhash
+(demo path; expires ~90 s). Do NOT ask the operator for new nonces —
+the operator pre-allocates the pool (`DEPLOY.md` §7).
+
 The plugin validates mechanically (owner == `__config.owner_pubkey`,
 claimable > 0, bin-array range) and returns:
 
@@ -64,7 +69,7 @@ it expires in ~90s. Echo only the plugin's fields.
 
 ### 4. Confirm settlement
 
-Poll every 10s for ≤60s: `dlmm_reader {"mode":"status","nonce_address":"${NONCE_ACCOUNT}","previous_nonce_hash":"<recent_blockhash from step 2>"}`.
+Poll every 10s for ≤60s: `dlmm_reader {"mode":"status","nonce_address":"<the pool slot you used in step 2>","previous_nonce_hash":"<recent_blockhash from step 2>"}`.
 
 `settled: true` → the nonce advanced → tx landed:
 
@@ -75,10 +80,13 @@ Poll every 10s for ≤60s: `dlmm_reader {"mode":"status","nonce_address":"${NONC
 `settled: false` after 60s → "still pending; nothing lost — the nonce guard
 rejects double-spends".
 
+When `settled: true`, **free the pool slot** in agent memory so the same
+nonce can be reused for a future tx.
+
 ## Rules
 
 - Never sign. Never submit. Never broadcast. The operator signs the unsigned
   tx in their own wallet.
 - Plugin error → reply verbatim, no retry
-- One pending tx per nonce account: if `status` says unsettled, do NOT build
-  another tx on the same nonce.
+- One pending tx per **pool slot**: if `status` says unsettled, do NOT build
+  another tx on the same slot. Pick a different pool slot for the next tx.

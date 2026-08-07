@@ -6,9 +6,9 @@
 
 A ZeroClaw agent in your Telegram that watches Meteora DLMM positions: daily
 report at 08:00, out-of-range alerts every 30 min, and on-demand `claim` /
-`rebalance` via Solana Action URL. **The Solana work runs in two WASM plugins**
-— fetch, decode, validate, and encode — the agent only proposes, you sign in
-Phantom. No keys held.
+`rebalance`. The agent builds an **unsigned transaction** — fetch, decode,
+validate, and encode all run in two WASM plugins. The agent only proposes; you
+sign with your own wallet. No keys held.
 
 ## Who it's for
 
@@ -39,15 +39,16 @@ Brazilian LPs get `America/Sao_Paulo` timezone (configurable).
 3. **`plugins/dlmm-builder`** — T1 shim: validates mechanically (ownership,
    claimable > 0, liquidity > 0, range contains the live active bin, bin-array
    indexes in-bounds), builds the unsigned tx with `AdvanceNonceAccount` first
-   and the **live nonce hash** as `recentBlockhash`, and returns a complete
-   `solana-action:` URL. LLM proposes — plugin verifies.
-4. **Stateless Solana Action relay** (`action-endpoint/`): Cloudflare Worker
-   with **zero secrets, zero RPC, zero SDK deps** (~150 lines). GET renders the
-   wallet preview *from the tx bytes* (instruction count, program IDs, nonce
-   first, signer); POST echoes the tx and rejects any signer ≠ fee payer with
-   403. Single-operator by construction.
+   and the **live nonce hash** as `recentBlockhash`, and returns the raw
+   unsigned tx (base64). LLM proposes — plugin verifies.
+4. **Standalone relay** (`action-endpoint/`): Cloudflare Worker with **zero
+   secrets, zero RPC, zero SDK deps** (~150 lines). Auxiliary reference impl:
+   serves a wallet preview *from the tx bytes* (instruction count, program
+   IDs, nonce first, signer) and echoes the tx back; rejects any signer ≠
+   fee payer with 403. Not in the agent flow — the in-tree plugin path
+   returns raw base64 for the operator to sign in any wallet.
 5. **Four skills** (`skills/meteora-*.md`): T0 read/report, T1 claim, T1
-   rebalance with durable-nonce settlement confirmation.
+   rebalance with durable-nonce pool settlement confirmation.
 6. **Ground-truth fixture suite** (`tools/gen-fixtures.cjs`): txs built with the
    official `@meteora-ag/dlmm` + `@solana/web3.js` SDK, then cross-checked
    byte-for-byte by the Rust core — `make fixtures` regenerates, CI fails on
@@ -71,8 +72,9 @@ no session key, no autocompound block, no sign capability. Skills have no
 
 ## Threat model
 
-**Channel = prompt-injection surface.** Agent only proposes Action URLs. User
-signs. Full adversarial transcript: `prompts/injection-tests.md` (7 scenarios).
+**Channel = prompt-injection surface.** Agent only proposes unsigned
+transactions. User signs. Full adversarial transcript: `prompts/injection-tests.md`
+(7 scenarios).
 
 **No LLM outbound at all.** `http_request`, `web_fetch`, `browser`,
 `web_search_tool`, and every filesystem tool sit in
@@ -81,9 +83,13 @@ happen only in-wasm under the host-injected `__config`, which strips any
 caller-supplied `__config` (anti-spoof). The builder refuses to run without
 `owner_pubkey` and rejects positions it doesn't own.
 
-**Blockhash expiry.** Every proposed tx uses a durable nonce — valid past the
-90s blockhash window. One nonce per concurrent pending tx; settlement is
-verified by the nonce hash changing on-chain before a new proposal is allowed.
+**Blockhash expiry.** Every proposed tx uses a durable nonce from a
+host-injected pool — valid past the 90s blockhash window. The pool
+(`__config.nonce_addresses`, N entries) serializes N concurrent pending
+approvals; the LLM hints which pool slot via `args.nonce_address` and the
+plugin validates the hint is inside the pool (anti-spoof). Settlement is
+verified by the nonce hash changing on-chain before a new proposal on
+the same slot is allowed.
 
 **Third-party trust:** Jupiter (read-only price), Cloudflare (relay host),
 RPC (user-supplied, in plugin config). Declared.
@@ -105,8 +111,9 @@ checked in-wasm before a single tx byte is serialized.
 
 - **All Solana work in WASM plugins** — the bounty's core ask (quorum/palinurus
   pattern): fetch, decode, validate, encode, all in-wasm with anti-spoof config
-- **Solana Actions UX** — no submission pairs Blinks with an approval-gated agent
-- **Stateless relay** — preview rendered from bytes; zero secret/KV/SDK surface
+- **Unsigned tx as the deliverable** — the plugin hands back the raw unsigned
+  tx; the operator signs in any wallet (Phantom, Solflare, CLI)
+- **Stateless relay** — wallet preview rendered from bytes; zero secret/KV/SDK surface
 - **Durable nonces** (blockhash trap solved) for claim *and* rebalance
 - **Byte-for-byte ground truth** — independent SDK sources, regenerable, CI-checked
 - **Triple-gated defense**: LLM (skill rules) + Tool (denied-by-default) + Cryptographic (on-chain auth)
@@ -125,10 +132,8 @@ cp skills/*.md ~/.zeroclaw/skills/
 cp -r sops/dlmm-* ~/.zeroclaw/sops/
 cp config.example.toml ~/.zeroclaw/config.toml
 # edit ~/.zeroclaw/config.toml — fill ${SOLANA_RPC_URL}, ${OPERATOR_WALLET_PUBKEY},
-# ${ACTION_ENDPOINT_BASE} (used by the [plugins.entries.*.config] sections)
+# and ${DURABLE_NONCE_ADDRESS_1..N} (used by the [plugins.entries.*.config] sections)
 
-cd action-endpoint && npm install && npx wrangler deploy   # no secrets
-cd ..
 zeroclaw service install && zeroclaw service start
 ```
 

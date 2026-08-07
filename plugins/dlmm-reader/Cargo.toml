@@ -28,7 +28,7 @@ base64 = "0.22"
 [profile.release]
 opt-level = "s"
 lto = true
-# strip = true  # keep symbols until the report panic is confirmed fixed live
+strip = true
 codegen-units = 1
 panic = "unwind"
 

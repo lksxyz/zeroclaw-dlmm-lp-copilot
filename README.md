@@ -2,7 +2,7 @@
 
 Self-hosted ZeroClaw agent watching [Meteora DLMM](https://app.meteora.ag/) positions via
 **Telegram**. The Solana work — RPC fetch, on-chain decoding, unsigned tx building —
-runs inside two WASM plugins. The agent proposes; you sign in Phantom. No keys held.
+runs inside two WASM plugins. The agent proposes; you sign in any wallet. No keys held.
 
 > Superteam Brasil bounty: T0 (read) + T1 (build unsigned tx). Winner announcement 2026-08-21.
 
@@ -11,8 +11,8 @@ runs inside two WASM plugins. The agent proposes; you sign in Phantom. No keys h
 - **Daily 08:00 (operator TZ, default `America/Sao_Paulo`)** — position report (range, active bin, claimable fees)
 - **Every 30 min** — out-of-range + fee-milestone alert
 - **DM `report`** — on-demand position report
-- **DM `claim #<id>`** → Solana Action URL → sign in Phantom
-- **DM `rebalance #<id> [wide|tight]`** → atomic 3-ix tx on a durable nonce → sign in Phantom
+- **DM `claim #<id>`** → raw unsigned claim tx → sign in any wallet
+- **DM `rebalance #<id> [wide|tight]`** → atomic 3-ix unsigned tx on a durable nonce from a pool (parallel pending approvals) → sign in any wallet
 
 ## Architecture
 
@@ -27,10 +27,8 @@ dlmm_reader (WASM plugin, T0)          dlmm_builder (WASM plugin, T1)
    ↑ anti-spoof __config (RPC_URL, OWNER_PUBKEY, DLMM_PROGRAM) injected by host
    ↑ shared pure core: plugins/dlmm-core (host-testable Rust)
    ↓
-solana-action:<relay>/tx/<b64url>   →   action-endpoint/ (stateless Cloudflare
-Worker: previews from bytes, echoes tx — no secrets, no RPC, no SDK deps)
-   ↓
-Phantom — the user signs. Agent never holds a key.
+unsigned tx (base64)   →   your wallet signs (Phantom / Solflare / CLI).
+Agent never holds a key.
 ```
 
 All Solana traffic runs inside the plugins under a host-injected `__config` —
@@ -44,17 +42,18 @@ plugins/
   dlmm-core/        # shared pure core: borsh decode, nonce helpers, tx encoding,
                     #   waki RPC client, mechanical validation (host tests, 16)
   dlmm-reader/      # T0 shim → dlmm_reader tool (positions/report/status modes)
-  dlmm-builder/     # T1 shim → dlmm_builder tool (claim/rebalance → Action URL)
+  dlmm-builder/     # T1 shim → dlmm_builder tool (claim/rebalance → unsigned tx)
   wit/              # ZeroClaw registry wit/v0, pinned (see UPSTREAM_REF.md)
 skills/             # Agent-readable markdown (loaded every invoke)
   meteora-position.md    T0: discover + report via dlmm_reader
   meteora-report.md      T0: Telegram format
-  meteora-claim.md       T1: claim → Action URL
-  meteora-rebalance.md   T1: rebalance → Action URL (durable nonce)
+  meteora-claim.md       T1: claim → unsigned tx
+  meteora-rebalance.md   T1: rebalance → unsigned tx (durable nonce pool)
 sops/               # Cron definitions
   dlmm-daily-report/     08:00 report
   dlmm-range-monitor/    */30 OOR check + settlement cleanup
-action-endpoint/  # Stateless Solana Action relay (Cloudflare Worker)
+action-endpoint/  # Standalone Cloudflare Worker (zero deps, zero secrets)
+                 #   — auxiliary reference impl; not in the agent flow
 tools/            # Ground-truth fixture generator (web3.js + @meteora-ag/dlmm)
 config.example.toml
 prompts/injection-tests.md
@@ -77,21 +76,18 @@ zeroclaw quickstart
 #    Store in ~/.zeroclaw/secrets/telegram.env
 
 # 3. Copy config and fill placeholders — the plugin sections take
-#    SOLANA_RPC_URL / OPERATOR_WALLET_PUBKEY / ACTION_ENDPOINT_BASE
+#    SOLANA_RPC_URL / OPERATOR_WALLET_PUBKEY / DURABLE_NONCE_ADDRESS_{1,2,3}
 cp config.example.toml ~/.zeroclaw/config.toml
 
 # 4. Build the WASM plugins (needs rustup target wasm32-wasip2)
 make plugin-build
 
-# 5. Deploy the stateless relay (no secrets, no bindings)
-cd action-endpoint && npm install && npx wrangler deploy
-
-# 6. Load skills + SOPs
+# 5. Load skills + SOPs
 mkdir -p ~/.zeroclaw/skills ~/.zeroclaw/sops
 cp skills/*.md ~/.zeroclaw/skills/
 cp -r sops/dlmm-* ~/.zeroclaw/sops/
 
-# 7. Start
+# 6. Start
 zeroclaw service install && zeroclaw service start
 ```
 
@@ -119,9 +115,12 @@ in-wasm with the host-injected `__config` (anti-spoof: caller-supplied
 `__config` is stripped). The builder additionally verifies position ownership
 against `__config.owner_pubkey` before encoding anything.
 
-**Durable nonce.** Every agent-proposed tx leads with `AdvanceNonceAccount` and
-uses the live nonce hash as `recentBlockhash` — the tx survives approval delays.
-One pending tx per nonce account; a second proposal fails atomically.
+**Durable nonce pool.** Every agent-proposed tx leads with `AdvanceNonceAccount`
+and uses the live nonce hash as `recentBlockhash` — the tx survives approval
+delays. The pool (N nonces, host-injected) allows N parallel pending
+approvals; the LLM hints which slot via `args.nonce_address`, the plugin
+validates the hint is inside the pool. One pending tx per nonce account;
+a second proposal on the same slot fails atomically.
 
 **Mechanical validation.** "LLM proposes, plugin verifies": ownership match,
 claimable > 0, liquidity > 0, low < high, range contains the active bin —
