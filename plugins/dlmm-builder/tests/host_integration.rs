@@ -5,7 +5,7 @@
 //! provides (plugin config section injected under `__config`), and the
 //! fail-closed configuration rules.
 
-use dlmm_builder::build::{build_action, parse_key, ActionInput, Args, DEFAULT_DLMM_PROGRAM};
+use dlmm_builder::build::{build_action, parse_key, resolve_nonce, ActionInput, Args, DEFAULT_DLMM_PROGRAM};
 
 #[test]
 fn args_parse_with_config_injection() {
@@ -19,7 +19,11 @@ fn args_parse_with_config_injection() {
             "__config": {
                 "rpc_url": "https://api.mainnet-beta.solana.com",
                 "owner_pubkey": "2KDS5vtFQJyYJApNGoPVaBSaYP7Vp4R3txRM9SYj13BW",
-                "dlmm_program": "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"
+                "dlmm_program": "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",
+                "nonce_addresses": [
+                    "46Zno59Ksbc6fEXzfQr9aqbJdc4s4zi4JeXumwgXzFwX",
+                    "8xWjKvR3TzP4mNs6qLpYbD5hGfJcE7aA9bC2dE1fG3hJ"
+                ]
             }
         }"#,
     )
@@ -28,6 +32,15 @@ fn args_parse_with_config_injection() {
     assert_eq!(args.new_low, Some(8450));
     let cfg = args.config.expect("__config injected");
     assert_eq!(cfg.rpc_url, "https://api.mainnet-beta.solana.com");
+    // Args nonce hint matches the first pool entry.
+    assert_eq!(
+        resolve_nonce(
+            cfg.nonce_addresses.as_deref().unwrap_or(&[]),
+            args.nonce_address.as_deref()
+        )
+        .as_deref(),
+        Some("46Zno59Ksbc6fEXzfQr9aqbJdc4s4zi4JeXumwgXzFwX"),
+    );
 }
 
 #[test]
@@ -52,6 +65,31 @@ fn owner_pubkey_is_required_for_any_action() {
     .unwrap();
     let cfg = args.config.unwrap();
     assert!(cfg.owner_pubkey.is_none());
+}
+
+#[test]
+fn nonce_address_alias_accepts_singular_legacy_form() {
+    // Backward compatibility: a single `nonce_address` (singular) deserializes
+    // into the `nonce_addresses` pool as a one-element vector.
+    let args: Args = serde_json::from_str(
+        r#"{
+            "mode": "claim",
+            "position_id": "pos",
+            "__config": {
+                "rpc_url": "https://x",
+                "owner_pubkey": "2KDS5vtFQJyYJApNGoPVaBSaYP7Vp4R3txRM9SYj13BW",
+                "nonce_address": "46Zno59Ksbc6fEXzfQr9aqbJdc4s4zi4JeXumwgXzFwX"
+            }
+        }"#,
+    )
+    .unwrap();
+    let cfg = args.config.unwrap();
+    let pool = cfg.nonce_addresses.expect("legacy alias should populate pool");
+    assert_eq!(pool.len(), 1);
+    assert_eq!(
+        pool[0],
+        "46Zno59Ksbc6fEXzfQr9aqbJdc4s4zi4JeXumwgXzFwX"
+    );
 }
 
 #[test]
@@ -133,6 +171,8 @@ impl Env {
             owner: &self.owner,
             nonce: &self.nonce,
             program: &self.program,
+            token_program_x: dlmm_core::tx::TOKEN_PROGRAM_ID.parse().unwrap(),
+            token_program_y: dlmm_core::tx::TOKEN_PROGRAM_ID.parse().unwrap(),
             new_low,
             new_high,
             use_nonce: true,

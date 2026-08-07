@@ -27,8 +27,18 @@ mod component {
     use dlmm_core::decoder::{decode_bin_array, decode_lb_pair, decode_position};
     use dlmm_core::pda;
     use dlmm_core::rpc::RpcClient;
-    use dlmm_core::tx::bin_array_indexes_for_range;
+    use dlmm_core::tx::{bin_array_indexes_for_range, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID};
     use solana_pubkey::Pubkey;
+
+    /// Resolve the token program owning a mint account. Defaults to SPL Token
+    /// if the mint account can't be read (defensive; ATA derivation still
+    /// works for the common SPL case).
+    fn resolve_token_program(rpc: &RpcClient, mint: &Pubkey) -> Result<Pubkey, String> {
+        match rpc.get_account_info_with_owner(mint)? {
+            Some((_, owner)) => Ok(owner),
+            None => Ok(TOKEN_PROGRAM_ID.parse().unwrap()),
+        }
+    }
 
     wit_bindgen::generate!({
         world: "tool-plugin",
@@ -79,7 +89,7 @@ mod component {
                     },
                     "nonce_address": {
                         "type": "string",
-                        "description": "Durable nonce account (recentBlockhash source). Optional: when __config.nonce_address is set, the host-injected value is used instead and this arg is ignored. When both are empty, falls back to the latest blockhash (demo path; expires ~90 s)."
+                        "description": "Durable nonce account hint (must be inside __config.nonce_addresses pool). The plugin uses this only when it matches a host-injected pool entry; otherwise it falls back to the first pool entry. With both empty, falls back to the latest blockhash (demo path; expires ~90 s)."
                     },
                     "new_low": {
                         "type": "integer",
@@ -136,21 +146,22 @@ mod component {
             .map_err(|e| format!("pool {} decode: {e}", position.lb_pair))?;
 
             // Two paths for recentBlockhash:
-            //   __config.nonce_address set  → durable-nonce hash (production;
-            //   survives approval delays; one pending tx per nonce account).
-            //   __config.nonce_address unset → latest blockhash (demo path;
+            //   __config.nonce_addresses set  → durable-nonce hash from the
+            //   pool (production; survives approval delays; pool allows
+            //   parallel pending approvals).
+            //   __config.nonce_addresses unset → latest blockhash (demo path;
             //   expires ~90 s, user must sign promptly).
             //
-            // Precedence: the host-injected `__config.nonce_address` wins
-            // over any `args.nonce_address` the LLM passes. The runtime
-            // strips caller-supplied `__config` (anti-spoof), so the LLM
-            // can never substitute the operator's nonce for an
-            // attacker-controlled pubkey — see `prompts/injection-tests.md`
-            // scenario 6 for the threat model.
-            let nonce_addr = resolve_nonce(
-                config.nonce_address.as_deref(),
-                args.nonce_address.as_deref(),
-            );
+            // The LLM's `args.nonce_address` is a hint; it is accepted only
+            // when it matches a pool entry. The runtime strips caller-supplied
+            // `__config` (anti-spoof), so the LLM can never substitute the
+            // operator's nonce for an attacker-controlled pubkey — see
+            // `prompts/injection-tests.md` scenario 6 for the threat model.
+            let pool: Vec<String> = config
+                .nonce_addresses
+                .clone()
+                .unwrap_or_default();
+            let nonce_addr = resolve_nonce(&pool, args.nonce_address.as_deref());
             let (nonce_hash, use_nonce, nonce) = match nonce_addr.as_deref() {
                 Some(addr) => {
                     let key = parse_key(addr, "nonce_address")?;
@@ -178,6 +189,13 @@ mod component {
                 }
             }
 
+            // Resolve each mint's token program (SPL Token vs Token-2022)
+            // from the mint account's owner. An ATA must be derived against
+            // the program that owns the mint; hardcoding SPL Token breaks
+            // Token-2022 pools (the YOTS/SOL pool is one such case).
+            let token_program_x = resolve_token_program(&rpc, &lb_pair.token_x_mint)?;
+            let token_program_y = resolve_token_program(&rpc, &lb_pair.token_y_mint)?;
+
             let out = build_action(&ActionInput {
                 mode: &args.mode,
                 position_id,
@@ -189,6 +207,8 @@ mod component {
                 owner: &owner,
                 nonce: &nonce,
                 program: &program,
+                token_program_x,
+                token_program_y,
                 new_low: args.new_low,
                 new_high: args.new_high,
                 label: args.label.clone(),

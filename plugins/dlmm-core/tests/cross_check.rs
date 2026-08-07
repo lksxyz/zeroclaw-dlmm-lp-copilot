@@ -254,7 +254,8 @@ fn fixture_pool_ctx(f: &Value) -> PoolCtx {
         reserve_y: pk(&f["keys"]["reserve_y"]),
         token_x_mint: pk(&f["keys"]["token_x_mint"]),
         token_y_mint: pk(&f["keys"]["token_y_mint"]),
-        token_program: TOKEN_PROGRAM_ID.parse().unwrap(),
+        token_program_x: TOKEN_PROGRAM_ID.parse().unwrap(),
+        token_program_y: TOKEN_PROGRAM_ID.parse().unwrap(),
     }
 }
 

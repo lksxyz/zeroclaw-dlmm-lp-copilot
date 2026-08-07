@@ -15,6 +15,7 @@ use crate::pda;
 
 pub const SYSTEM_PROGRAM_ID: &str = "11111111111111111111111111111111";
 pub const TOKEN_PROGRAM_ID: &str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+pub const TOKEN_2022_PROGRAM_ID: &str = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 pub const MEMO_PROGRAM_ID: &str = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
 pub const ASSOCIATED_TOKEN_PROGRAM_ID: &str = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
 pub const SYSVAR_RECENT_BLOCKHASHES: &str = "SysvarRecentB1ockHashes11111111111111111111";
@@ -98,6 +99,11 @@ pub fn bin_array_metas(
 // ---------------------------------------------------------------------------
 
 /// Pool context shared by all three instructions.
+///
+/// `token_program_x` / `token_program_y` are the token programs owning each
+/// mint (SPL Token vs Token-2022). A mixed pool (e.g. Token-2022 YOTS +
+/// SPL wSOL) needs the right program per mint — the DLMM program passes a
+/// token-program account per mint in each transfer instruction.
 #[derive(Debug, Clone)]
 pub struct PoolCtx {
     pub lb_pair: Pubkey,
@@ -105,7 +111,8 @@ pub struct PoolCtx {
     pub reserve_y: Pubkey,
     pub token_x_mint: Pubkey,
     pub token_y_mint: Pubkey,
-    pub token_program: Pubkey,
+    pub token_program_x: Pubkey,
+    pub token_program_y: Pubkey,
 }
 
 pub fn claim_fee2_ix(
@@ -136,8 +143,8 @@ pub fn claim_fee2_ix(
         AccountMeta::new(user_token_y, false),
         AccountMeta::new_readonly(pool.token_x_mint, false),
         AccountMeta::new_readonly(pool.token_y_mint, false),
-        AccountMeta::new_readonly(pool.token_program, false),
-        AccountMeta::new_readonly(pool.token_program, false),
+        AccountMeta::new_readonly(pool.token_program_x, false),
+        AccountMeta::new_readonly(pool.token_program_y, false),
         AccountMeta::new_readonly(memo_program, false),
         AccountMeta::new_readonly(event_authority, false),
         AccountMeta::new_readonly(program_id, false),
@@ -183,8 +190,8 @@ pub fn remove_liquidity_by_range2_ix(
         AccountMeta::new_readonly(pool.token_x_mint, false),
         AccountMeta::new_readonly(pool.token_y_mint, false),
         AccountMeta::new_readonly(sender, true),
-        AccountMeta::new_readonly(pool.token_program, false),
-        AccountMeta::new_readonly(pool.token_program, false),
+        AccountMeta::new_readonly(pool.token_program_x, false),
+        AccountMeta::new_readonly(pool.token_program_y, false),
         AccountMeta::new_readonly(memo_program, false),
         AccountMeta::new_readonly(event_authority, false),
         AccountMeta::new_readonly(program_id, false),
@@ -237,8 +244,8 @@ pub fn add_liquidity_by_strategy2_ix(
         AccountMeta::new_readonly(pool.token_x_mint, false),
         AccountMeta::new_readonly(pool.token_y_mint, false),
         AccountMeta::new_readonly(sender, true),
-        AccountMeta::new_readonly(pool.token_program, false),
-        AccountMeta::new_readonly(pool.token_program, false),
+        AccountMeta::new_readonly(pool.token_program_x, false),
+        AccountMeta::new_readonly(pool.token_program_y, false),
         AccountMeta::new_readonly(event_authority, false),
         AccountMeta::new_readonly(program_id, false),
     ];

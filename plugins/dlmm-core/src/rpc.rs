@@ -20,6 +20,16 @@ impl RpcClient {
         rpc_get_account_info(&self.url, key)
     }
 
+    /// getAccountInfo returning (data, owner) — the owner is the token
+    /// program for mint accounts, which decides the correct ATA token program
+    /// (SPL Token vs Token-2022).
+    pub fn get_account_info_with_owner(
+        &self,
+        key: &Pubkey,
+    ) -> Result<Option<(Vec<u8>, Pubkey)>, String> {
+        rpc_get_account_info_with_owner(&self.url, key)
+    }
+
     /// Active bin id of an LbPair account.
     pub fn get_active_bin(&self, pool: &Pubkey) -> Result<i32, String> {
         let data = self
@@ -123,6 +133,67 @@ fn rpc_get_account_info(url: &str, key: &Pubkey) -> Result<Option<Vec<u8>>, Stri
         .decode(b64)
         .map_err(|e| format!("base64 decode: {e}"))?;
     Ok(Some(bytes))
+}
+
+#[cfg(target_family = "wasm")]
+fn rpc_get_account_info_with_owner(
+    url: &str,
+    key: &Pubkey,
+) -> Result<Option<(Vec<u8>, Pubkey)>, String> {
+    use base64::Engine;
+    use serde_json::json;
+
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getAccountInfo",
+        "params": [key.to_string(), { "encoding": "base64", "commitment": "confirmed" }]
+    })
+    .to_string();
+
+    let resp = waki::Client::new()
+        .post(url)
+        .header("content-type", "application/json")
+        .body(body.as_bytes().to_vec())
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .send()
+        .map_err(|e| format!("rpc error: {e}"))?;
+    if resp.status_code() != 200 {
+        return Err(format!("rpc status {}", resp.status_code()));
+    }
+    let body = resp.body().map_err(|e| format!("rpc body error: {e}"))?;
+    let v: serde_json::Value =
+        serde_json::from_slice(&body).map_err(|e| format!("rpc json error: {e}"))?;
+    let Some(data) = v["result"]["value"].as_object() else {
+        return Ok(None);
+    };
+    let Some(enc) = data.get("data") else {
+        return Ok(None);
+    };
+    let (b64, _) = enc
+        .as_array()
+        .and_then(|a| a.first())
+        .and_then(|e| e.as_str())
+        .zip(enc.as_array().and_then(|a| a.get(1)))
+        .ok_or_else(|| "unexpected data encoding".to_string())?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|e| format!("base64 decode: {e}"))?;
+    let owner = data
+        .get("owner")
+        .and_then(|o| o.as_str())
+        .ok_or_else(|| "no owner in response".to_string())?
+        .parse()
+        .map_err(|e| format!("bad owner: {e}"))?;
+    Ok(Some((bytes, owner)))
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn rpc_get_account_info_with_owner(
+    _url: &str,
+    _key: &Pubkey,
+) -> Result<Option<(Vec<u8>, Pubkey)>, String> {
+    Err("rpc: host stub — wasm-only".to_string())
 }
 
 /// Jupiter Price API (v2) — replaces the deprecated Pyth feeds.

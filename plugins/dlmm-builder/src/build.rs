@@ -25,12 +25,47 @@ use dlmm_core::validate::{
     validate_bin_array_range, validate_claimable, validate_owned, validate_range,
     MAX_ACTIVE_BIN_SLIPPAGE,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::json;
 use solana_pubkey::Pubkey;
 
 /// Default DLMM program: devnet. Operators pin their own via `__config.dlmm_program`.
 pub const DEFAULT_DLMM_PROGRAM: &str = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo";
+
+/// Accept either `"nonce_addresses": ["a", "b"]` (preferred, plural pool)
+/// or `"nonce_address": "a"` (legacy single-nonce setups, treated as a
+/// one-element pool). Lets operators migrate without breaking their
+/// existing `config.toml`.
+fn deserialize_nonce_addresses<'de, D>(d: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+    let v: serde_json::Value = Deserialize::deserialize(d)?;
+    match v {
+        serde_json::Value::Null => Ok(None),
+        serde_json::Value::String(s) => {
+            if s.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(vec![s]))
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            let mut out = Vec::with_capacity(arr.len());
+            for item in arr {
+                let s = item
+                    .as_str()
+                    .ok_or_else(|| Error::custom("nonce_addresses: expected string"))?;
+                out.push(s.to_string());
+            }
+            Ok(Some(out))
+        }
+        other => Err(Error::custom(format!(
+            "nonce_addresses: expected string or array, got {other}"
+        ))),
+    }
+}
 
 /// Host-injected config (ZeroClaw injects the plugin's config section under
 /// the reserved `__config` key; caller-supplied values are stripped by the
@@ -43,18 +78,27 @@ pub struct PluginConfig {
     pub owner_pubkey: Option<String>,
     #[serde(default)]
     pub dlmm_program: Option<String>,
-    /// Durable nonce account used as the `recentBlockhash` source for every
-    /// agent-proposed tx. Host-injected under `__config` (anti-spoof: the
-    /// LLM cannot redirect this to an attacker-controlled account via DM —
-    /// the runtime strips caller-supplied `__config` and the builder uses
-    /// this value over any `args.nonce_address` the LLM might pass).
+    /// Pool of durable nonce accounts the builder may use as `recentBlockhash`
+    /// sources. Host-injected under `__config` (anti-spoof: the runtime strips
+    /// caller-supplied `__config`, so the LLM cannot redirect the pool to
+    /// attacker-controlled accounts via DM).
     ///
-    /// Bounty alignment: keeps the nonce on the same trust path as `rpc_url`
-    /// and `owner_pubkey` — all host-controlled, none of them DM-mediated.
-    /// The LLM is no longer asked for the nonce, so a prompt injection
-    /// ("paste your nonce here") can't substitute the attacker's.
-    #[serde(default)]
-    pub nonce_address: Option<String>,
+    /// Bounty alignment: one nonce account serializes to one in-flight
+    /// transaction. With a pool, the agent/SOP can issue parallel pending
+    /// approvals (e.g. claim + rebalance on different positions) without
+    /// double-advance. The LLM hints which pool slot to use via
+    /// `args.nonce_address`; the plugin validates the hint is inside the
+    /// pool, so a prompt injection ("use this nonce instead") can't
+    /// substitute an attacker-controlled pubkey.
+    ///
+    /// Accepts either `nonce_addresses` (array — preferred) or
+    /// `nonce_address` (single — legacy single-nonce setups).
+    #[serde(
+        default,
+        alias = "nonce_address",
+        deserialize_with = "deserialize_nonce_addresses"
+    )]
+    pub nonce_addresses: Option<Vec<String>>,
 }
 
 /// Tool arguments (mode `claim` or `rebalance`).
@@ -63,7 +107,9 @@ pub struct Args {
     pub mode: String,
     #[serde(default)]
     pub position_id: Option<String>,
-    /// Durable nonce account — its stored hash becomes `recentBlockhash`.
+    /// Durable nonce account hint — must be inside `__config.nonce_addresses`.
+    /// The plugin validates the hint against the host-injected pool and
+    /// falls back to the first pool entry if the hint is missing or invalid.
     #[serde(default)]
     pub nonce_address: Option<String>,
     /// Rebalance target range (bin ids). Claim ignores these.
@@ -100,6 +146,11 @@ pub struct ActionInput<'a> {
     /// =false` this is a placeholder and the tx is a plain 1- or 2-ix tx.
     pub nonce: &'a Pubkey,
     pub program: &'a Pubkey,
+    /// Token program owning the pool's token X mint (SPL Token or Token-2022).
+    /// Determines the user's X ATA address. Defaults to SPL Token.
+    pub token_program_x: Pubkey,
+    /// Token program owning the pool's token Y mint.
+    pub token_program_y: Pubkey,
     pub new_low: Option<i32>,
     pub new_high: Option<i32>,
     pub label: Option<String>,
@@ -111,49 +162,71 @@ pub struct ActionInput<'a> {
     pub use_nonce: bool,
 }
 
-/// Resolve which nonce to use for `recentBlockhash`.
+/// Resolve which nonce to use for `recentBlockhash` from the operator's pool.
 ///
-/// Precedence: host-injected `__config.nonce_address` (anti-spoof) wins over
-/// any `args.nonce_address` the LLM passes. Both empty → the caller falls
-/// back to the latest blockhash (demo path; the wasm entry decides which
-/// branch to take). Returns the resolved pubkey-or-None so this logic is
-/// host-testable without an RPC.
+/// Precedence:
+///   1. `args.nonce_address` — the LLM's pick — but only if it is inside
+///      the host-injected pool. This is the anti-spoof gate: a prompt
+///      injection asking for a different nonce can't escape the pool.
+///   2. First non-empty entry of `config_nonce_pool` — the host's default
+///      when the LLM doesn't hint (or hints something invalid).
+///   3. None — caller falls back to the latest blockhash (demo path; the
+///      wasm entry decides which branch to take).
 ///
-/// Bounty alignment: the LLM is *never* the source of the nonce. The
-/// runtime strips caller-supplied `__config` and the builder uses the host
-/// value. Prompt-injection scenarios (e.g. scenario 6, replayed URL) can't
-/// substitute the operator's nonce for an attacker-controlled one.
+/// Bounty alignment: the LLM is never the source of the nonce pool. The
+/// runtime strips caller-supplied `__config` so the pool is always
+/// host-controlled. Prompt-injection scenarios (e.g. scenario 6, replayed
+/// URL with attacker-controlled nonce) can't substitute the operator's
+/// nonces — the hint must match a pool entry or be ignored.
 pub fn resolve_nonce(
-    config_nonce: Option<&str>,
+    config_nonce_pool: &[String],
     args_nonce: Option<&str>,
 ) -> Option<String> {
-    config_nonce
+    let cleaned: Vec<&str> = config_nonce_pool
+        .iter()
+        .map(|s| s.as_str())
         .filter(|s| !s.is_empty())
-        .or_else(|| args_nonce.filter(|s| !s.is_empty()))
-        .map(|s| s.to_string())
+        .collect();
+
+    // 1. LLM hint — only valid if it matches a pool entry.
+    if let Some(hint) = args_nonce.filter(|s| !s.is_empty()) {
+        if cleaned.iter().any(|p| *p == hint) {
+            return Some(hint.to_string());
+        }
+    }
+
+    // 2. First pool entry (deterministic host default).
+    cleaned.first().map(|s| s.to_string())
 }
 
 /// Build + validate + encode, return the shaped output (action URL, tx base64,
 /// summary). Every failure is an Err with a human-readable reason — the plugin
 /// surfaces it directly to the LLM.
 pub fn build_action(input: &ActionInput) -> Result<serde_json::Value, String> {
+    // Per-mint token programs: an ATA must be derived against the token
+    // program that owns the mint (SPL Token vs Token-2022). The wasm shim
+    // resolves these from the mint accounts' owner; defaults to SPL Token.
+    let token_program_x = input.token_program_x;
+    let token_program_y = input.token_program_y;
     let pool_ctx = PoolCtx {
         lb_pair: input.position.lb_pair,
         reserve_x: input.lb_pair.reserve_x,
         reserve_y: input.lb_pair.reserve_y,
         token_x_mint: input.lb_pair.token_x_mint,
         token_y_mint: input.lb_pair.token_y_mint,
-        token_program: TOKEN_PROGRAM_ID.parse().unwrap(),
+        token_program_x,
+        token_program_y,
     };
 
     // 1. Mechanical validation — fail closed.
     validate_owned(input.position, input.owner).map_err(|e| format!("ownership: {e}"))?;
 
-    // Deposit accounts: the owner's ATAs for the pool's two mints.
+    // Deposit accounts: the owner's ATAs for the pool's two mints, each
+    // derived against the mint's own token program.
     let user_token_x =
-        associated_token_address(input.owner, &pool_ctx.token_x_mint, &pool_ctx.token_program);
+        associated_token_address(input.owner, &pool_ctx.token_x_mint, &token_program_x);
     let user_token_y =
-        associated_token_address(input.owner, &pool_ctx.token_y_mint, &pool_ctx.token_program);
+        associated_token_address(input.owner, &pool_ctx.token_y_mint, &token_program_y);
 
     let (ixs, summary) = match input.mode {
         "claim" => {
@@ -336,6 +409,8 @@ mod tests {
                 owner: &self.owner,
                 nonce: &self.nonce,
                 program: &self.program,
+                token_program_x: TOKEN_PROGRAM_ID.parse().unwrap(),
+                token_program_y: TOKEN_PROGRAM_ID.parse().unwrap(),
                 new_low,
                 new_high,
                 use_nonce: true,
@@ -468,40 +543,71 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // `resolve_nonce` — config-driven precedence
+    // `resolve_nonce` — pool-driven, anti-spoof
     // -----------------------------------------------------------------------
     //
-    // The host-injected `__config.nonce_address` wins over any
-    // `args.nonce_address` the LLM passes. Both empty → None (caller falls
-    // back to the latest blockhash; the demo path). The LLM can never
-    // substitute the operator's nonce for an attacker-controlled pubkey
-    // (bounty threat model, `prompts/injection-tests.md` scenario 6).
+    // The host-injected `__config.nonce_addresses` pool is the source of
+    // truth. The LLM's `args.nonce_address` is accepted only if it matches a
+    // pool entry; otherwise the first pool entry is used. The LLM can never
+    // escape the pool (bounty threat model, `prompts/injection-tests.md`
+    // scenario 6).
     #[test]
-    fn resolve_nonce_prefers_config_over_args() {
+    fn resolve_nonce_uses_args_when_in_pool() {
+        let pool = vec![
+            "PoolNOnceAXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX".to_string(),
+            "PoolNOnceBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX".to_string(),
+        ];
+        let resolved = resolve_nonce(&pool, Some("PoolNOnceBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"));
+        assert_eq!(
+            resolved.as_deref(),
+            Some("PoolNOnceBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"),
+        );
+    }
+
+    #[test]
+    fn resolve_nonce_rejects_args_outside_pool() {
+        let pool = vec!["PoolNOnceAXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX".to_string()];
+        // Attacker-supplied nonce — not in pool — falls back to pool head.
         let resolved = resolve_nonce(
-            Some("CfgNOnceXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"),
-            Some("ArgsNOnceXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"),
+            &pool,
+            Some("AttackerXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"),
         );
         assert_eq!(
             resolved.as_deref(),
-            Some("CfgNOnceXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"),
+            Some("PoolNOnceAXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"),
         );
     }
 
     #[test]
-    fn resolve_nonce_falls_back_to_args_when_config_empty() {
-        let resolved = resolve_nonce(None, Some("ArgsNOnceXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"));
+    fn resolve_nonce_falls_back_to_pool_head_when_args_missing() {
+        let pool = vec![
+            "PoolNOnceAXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX".to_string(),
+            "PoolNOnceBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX".to_string(),
+        ];
         assert_eq!(
-            resolved.as_deref(),
-            Some("ArgsNOnceXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"),
+            resolve_nonce(&pool, None).as_deref(),
+            Some("PoolNOnceAXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"),
         );
     }
 
     #[test]
-    fn resolve_nonce_treats_empty_config_and_empty_args_as_none() {
-        assert_eq!(resolve_nonce(None, None), None);
-        assert_eq!(resolve_nonce(Some(""), None), None);
-        assert_eq!(resolve_nonce(None, Some("")), None);
-        assert_eq!(resolve_nonce(Some(""), Some("")), None);
+    fn resolve_nonce_treats_empty_pool_and_empty_args_as_none() {
+        assert_eq!(resolve_nonce(&[], None), None);
+        assert_eq!(resolve_nonce(&[], Some("ArgsNOnceXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")), None);
+        let empty_pool = vec!["".to_string()];
+        assert_eq!(resolve_nonce(&empty_pool, None), None);
+        assert_eq!(resolve_nonce(&empty_pool, Some("")), None);
+    }
+
+    #[test]
+    fn resolve_nonce_skips_empty_pool_entries() {
+        let pool = vec![
+            "".to_string(),
+            "PoolNOnceAXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX".to_string(),
+        ];
+        assert_eq!(
+            resolve_nonce(&pool, None).as_deref(),
+            Some("PoolNOnceAXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"),
+        );
     }
 }
